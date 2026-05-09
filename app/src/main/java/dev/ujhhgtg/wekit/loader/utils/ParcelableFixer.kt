@@ -4,23 +4,23 @@ import android.content.Intent
 import android.os.Bundle
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
-import dev.ujhhgtg.comptime.nameOf
+import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.reflection.ClassLoaders
 
 object ParcelableFixer {
 
-    private val TAG = nameOf(ParcelableFixer)
+    private val TAG = This.Class.simpleName
 
     lateinit var hybridClassLoader: ClassLoader
         private set
 
-    private var isInit = false
+    private var initialized = false
 
     @Suppress("unused")
     fun init() {
-        if (isInit) return
-        isInit = true
+        if (initialized) return
+        initialized = true
 
         this.hybridClassLoader = object : ClassLoader(ClassLoaders.HOST) {
             override fun findClass(name: String): Class<*> = ClassLoaders.MODULE.loadClass(name)
@@ -94,6 +94,6 @@ object ParcelableFixer {
                 Class::class.java,
                 hook
             )
-        }.onFailure { WeLogger.w(TAG, "Failed to hook some Intent methods: ${it.message}") }
+        }.onFailure { WeLogger.w(TAG, "failed to hook some Intent methods: ${it.message}") }
     }
 }

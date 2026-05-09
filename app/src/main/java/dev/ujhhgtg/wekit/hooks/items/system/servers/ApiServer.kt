@@ -28,9 +28,9 @@ import io.ktor.server.auth.Authentication
 import io.ktor.server.auth.UserIdPrincipal
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.bearer
+import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
-import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.request.header
@@ -176,7 +176,7 @@ object ApiServer : ClickableHookItem() {
             WeChatService.listContacts(type).toCallToolResult { contacts ->
                 textsRes(contacts.map { c ->
                     if (type == "friends")
-                        "WxId='${c.wxId}',Nickname='${c.nickname}',CustomWxid='${c.customWxid}',RemarkName='${c.remarkName}'"
+                        "WxId='${c.wxId}',Nickname='${c.nickname}',CustomWxId='${c.customWxId}',RemarkName='${c.remarkName}'"
                     else
                         "WxId='${c.wxId}',Nickname='${c.nickname}'"
                 })
@@ -218,7 +218,7 @@ object ApiServer : ClickableHookItem() {
                 ?: return@addTool textRes("Invalid group ID", true)
             WeChatService.listGroupMembers(groupId).toCallToolResult { members ->
                 textsRes(members.map {
-                    "WxId='${it.wxId}',Nickname='${it.nickname}',CustomWxid='${it.customWxid}',RemarkName='${it.remarkName}'"
+                    "WxId='${it.wxId}',Nickname='${it.nickname}',CustomWxId='${it.customWxId}',RemarkName='${it.remarkName}'"
                 })
             }
         }
@@ -469,7 +469,7 @@ object ApiServer : ClickableHookItem() {
 
     override fun onEnable() {
         val addr = getLanAddress()
-        netServer = embeddedServer(Netty, host = addr, port = SERVER_PORT) {
+        netServer = embeddedServer(CIO, host = addr, port = SERVER_PORT) {
             configureServer()
         }.start(wait = false)
         showToast("MCP 服务器启动于 http://$addr:$SERVER_PORT/mcp")

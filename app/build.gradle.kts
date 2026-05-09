@@ -272,7 +272,7 @@ dependencies {
 
     implementation(libs.mcp.server)
     implementation(platform(libs.ktor.bom))
-    implementation(libs.ktor.server.netty)
+    implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.cors)
     implementation(libs.ktor.server.auth)
     implementation(libs.ktor.server.sse)

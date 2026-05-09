@@ -31,7 +31,7 @@ object WeChatService {
     data class ContactInfo(
         val wxId: String,
         val nickname: String,
-        val customWxid: String = "",
+        val customWxId: String = "",
         val remarkName: String = "",
     )
 
