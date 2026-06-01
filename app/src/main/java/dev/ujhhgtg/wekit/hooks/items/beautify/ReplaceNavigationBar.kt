@@ -3,12 +3,17 @@ package dev.ujhhgtg.wekit.hooks.items.beautify
 import android.app.Activity
 import android.content.Context
 import android.view.ViewGroup
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -25,13 +30,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.paint
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.materialsymbols.MaterialSymbols
@@ -39,7 +42,6 @@ import com.composables.icons.materialsymbols.outlinedfilled.Contacts
 import com.composables.icons.materialsymbols.outlinedfilled.Explore
 import com.composables.icons.materialsymbols.outlinedfilled.Home
 import com.composables.icons.materialsymbols.outlinedfilled.Person
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.ujhhgtg.wekit.dexkit.abc.IResolvesDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
 import dev.ujhhgtg.wekit.hooks.api.ui.WeMainActivityBeautifyApi
@@ -48,9 +50,11 @@ import dev.ujhhgtg.wekit.hooks.core.HookItem
 import dev.ujhhgtg.wekit.preferences.WePrefs
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
-import dev.ujhhgtg.wekit.ui.content.LiquidBottomTab
-import dev.ujhhgtg.wekit.ui.content.LiquidBottomTabs
+import dev.ujhhgtg.wekit.ui.content.FloatingBottomBar
+import dev.ujhhgtg.wekit.ui.content.FloatingBottomBarItem
 import dev.ujhhgtg.wekit.ui.content.TextButton
+import dev.ujhhgtg.wekit.ui.content.liquid.installerMiuixBlurEffect
+import dev.ujhhgtg.wekit.ui.content.liquid.rememberMiuixBlurBackdrop
 import dev.ujhhgtg.wekit.ui.utils.AppTheme
 import dev.ujhhgtg.wekit.ui.utils.LifecycleOwnerProvider
 import dev.ujhhgtg.wekit.ui.utils.setLifecycleOwner
@@ -126,7 +130,7 @@ object ReplaceNavigationBar : ClickableHookItem(), IResolvesDex {
                             var currentIndex by selectedPageIndexState
                             val unreadCount by unreadCountState
 
-                            // TODO: we currently use a custom background color without accent to match with wechat's overall style
+                            // TODO: we currently use a custom background color without accent to match with WeChat's overall style
                             //       might change this when MonetEngine covers more UI
                             val backgroundColor = if (isSystemInDarkTheme()) Color(0xFF191919) else Color(0xFFF7F7F7)
                             val activeColor = MaterialTheme.colorScheme.primary
@@ -196,39 +200,51 @@ object ReplaceNavigationBar : ClickableHookItem(), IResolvesDex {
                                     }
                                 }
                             } else {
-                                LiquidBottomTabs(
-                                    { currentIndex },
-                                    { methodOnTabClick.invoke(it) },
-                                    rememberLayerBackdrop(),
-                                    4,
-                                    activeColor
+                                val backdrop = rememberMiuixBlurBackdrop(true)!!
+
+                                Box(
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    ICONS.forEachIndexed { index, (icon, label) ->
-                                        val color =
-                                            if (currentIndex == index) activeColor else inactiveColor
-                                        LiquidBottomTab({ currentIndex = index }) {
-                                            BadgedBox(
-                                                badge = {
-                                                    if (index == 0 && unreadCount > 0) {
-                                                        Badge(containerColor = Color(0xFFFF3B30)) {
-                                                            Text(
-                                                                if (unreadCount <= 99) unreadCount.toString() else "99+",
-                                                                color = Color.White, fontSize = 10.sp
-                                                            )
-                                                        }
-                                                    }
-                                                }
+                                    FloatingBottomBar(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = {},
+                                            )
+                                            .padding(
+                                                bottom = 12.dp + WindowInsets.navigationBars.asPaddingValues()
+                                                    .calculateBottomPadding()
+                                            ).installerMiuixBlurEffect(backdrop),
+                                        selectedIndex = { selectedPageIndexState.intValue },
+                                        onSelected = { index ->
+                                            methodOnTabClick.invoke(index)
+                                        },
+                                        backdrop = backdrop,
+                                        tabsCount = ICONS.size,
+                                        isBlurEnabled = true
+                                    ) {
+                                        ICONS.forEachIndexed { index, item ->
+                                            FloatingBottomBarItem(
+                                                onClick = {
+                                                    methodOnTabClick.invoke(index)
+                                                },
+                                                modifier = Modifier.defaultMinSize(minWidth = 76.dp)
                                             ) {
-                                                Box(
-                                                    Modifier
-                                                        .size(28f.dp)
-                                                        .paint(rememberVectorPainter(icon), colorFilter = ColorFilter.tint(color))
+                                                Icon(
+                                                    imageVector = item.first,
+                                                    contentDescription = item.second
+                                                )
+                                                Text(
+                                                    text = item.second,
+                                                    fontSize = 11.sp,
+                                                    lineHeight = 14.sp,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    overflow = TextOverflow.Visible
                                                 )
                                             }
-                                            BasicText(
-                                                label,
-                                                style = TextStyle(color, 12f.sp)
-                                            )
                                         }
                                     }
                                 }

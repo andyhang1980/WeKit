@@ -70,35 +70,43 @@ android {
 
     sourceSets["main"].jniLibs.directories += "src/main/jniLibs"
 
-    signingConfigs {
-        create("release") {
-            storeFile = file(
-                System.getenv("WEKIT_KEYSTORE_FILE")
-                    ?: project.property("WEKIT_KEYSTORE_FILE") as String
-            )
-            storePassword = System.getenv("WEKIT_KEYSTORE_PASSWORD")
-                ?: project.property("WEKIT_KEYSTORE_PASSWORD") as String
-            keyAlias = System.getenv("WEKIT_KEY_ALIAS")
-                ?: project.property("WEKIT_KEY_ALIAS") as String
-            keyPassword = System.getenv("WEKIT_KEY_PASSWORD")
-                ?: project.property("WEKIT_KEY_PASSWORD") as String
+    var foundKeystore = false
 
-            enableV1Signing = false
-            enableV2Signing = true
-            enableV3Signing = true
-            enableV4Signing = true
+    @Suppress("LocalVariableName")
+    signingConfigs {
+        val _storeFile = System.getenv("WEKIT_KEYSTORE_FILE")
+            ?: runCatching { project.property("WEKIT_KEYSTORE_FILE") }.getOrNull() as? String?
+        val _storePassword = System.getenv("WEKIT_KEYSTORE_PASSWORD")
+            ?: runCatching { project.property("WEKIT_KEYSTORE_PASSWORD") }.getOrNull() as? String?
+        val _keyAlias = System.getenv("WEKIT_KEY_ALIAS")
+            ?: runCatching { project.property("WEKIT_KEY_ALIAS") }.getOrNull() as? String?
+        val _keyPassword = System.getenv("WEKIT_KEY_PASSWORD")
+            ?: runCatching { project.property("WEKIT_KEY_PASSWORD") }.getOrNull() as? String?
+
+        if (_storeFile != null && _storePassword != null && _keyAlias != null && _keyPassword != null) {
+            create("release") {
+                foundKeystore = true
+                storeFile = file(_storeFile)
+                storePassword = _storePassword
+                keyAlias = _keyAlias
+                keyPassword = _keyPassword
+
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName(if (foundKeystore) "release" else "debug")
         }
 
         release {
-            @Suppress("UnstableApiUsage")
             optimization.enable = true
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName(if (foundKeystore) "release" else "debug")
         }
     }
 
@@ -176,6 +184,7 @@ androidComponents {
 // --- tasks ---
 
 val generateMethodHashes = tasks.register<GenerateMethodHashesTask>("generateMethodHashes") {
+    description = "Generate resolveDex() method hashes"
     group = "wekit"
     sourceDir.set(file("src/main/java"))
     outputDir.set(layout.buildDirectory.dir("generated/source/methodhashes"))
@@ -250,8 +259,9 @@ dependencies {
     implementation(libs.androidx.browser)
     implementation(libs.aboutlibraries.core)
     implementation(libs.aboutlibraries.compose.m3)
-    implementation(libs.kyant0.backdrop)
-    implementation(libs.kyant0.shapes)
+    implementation(libs.miuix.core)
+    implementation(libs.miuix.ui)
+    implementation(libs.miuix.blur)
     implementation(libs.coil)
 
     implementation(libs.composablehorizons.material.symbols.filled)
@@ -272,7 +282,9 @@ dependencies {
     implementation(libs.kavaref.extension)
     implementation(libs.libsu.core)
     implementation(libs.dexmaker)
+    @Suppress("AvoidDuplicateDependencies")
     implementation(project(":libs:common:annotation-scanner"))
+    @Suppress("AvoidDuplicateDependencies")
     ksp(project(":libs:common:annotation-scanner"))
 
     implementation(libs.okhttp3.okhttp)

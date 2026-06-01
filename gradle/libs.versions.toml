@@ -1,7 +1,7 @@
 [versions]
-agp = "9.1.1"
+agp = "9.2.1"
 coil = "3.4.0"
-compose-bom = "2026.05.00"
+compose-bom = "2026.05.01"
 dexkit = "2.2.0"
 appcompat = "1.7.1"
 composablehorizons-symbols = "2.2.1"
@@ -15,26 +15,25 @@ osmdroid = "6.1.20"
 rhino = "45f29f6"
 serialization = "1.11.0"
 lombok = "1.18.46"
-protobuf = "4.34.1"
-ksp = "2.3.6"
+protobuf = "4.35.0"
+ksp = "2.3.9"
 okhttp = "5.3.2"
-kavaref = "1.0.2"
+kavaref = "1.0.3"
 hidden-api-bypass = "6.1"
-runtime = "1.11.1"
-compose-material3 = "1.5.0-alpha19"
+runtime = "1.11.2"
+compose-material3 = "1.5.0-alpha20"
 libsu = "5.2.2"
 libxposed = "101.0.0"
 dexlib2 = "2.5.2"
-aboutlibraries = "14.2.0"
+aboutlibraries = "14.2.1"
 kotlinpoet = "2.3.0"
 biometric = "1.2.0-alpha05"
 browser = "1.10.0"
-kyant0-backdrop = "2.0.0-alpha03"
-kyant0-shapes = "1.2.0"
+miuix = "0.9.1-5e75455e-SNAPSHOT"
 markwon = "4.6.2"
 annotation = "1.10.0"
 mcp-server = "0.12.0"
-ktor = "3.4.3"
+ktor = "3.5.0"
 dexmaker = "2.28.6"
 
 # noinspection UnusedVersionCatalogEntry
@@ -69,8 +68,9 @@ androidx-browser = { module = "androidx.browser:browser", version.ref = "browser
 androidx-compose-runtime = { group = "androidx.compose.runtime", name = "runtime", version.ref = "runtime" }
 composablehorizons-material-symbols-outlined = { module = "com.composables:icons-material-symbols-outlined-cmp", version.ref = "composablehorizons-symbols" }
 composablehorizons-material-symbols-filled = { module = "com.composables:icons-material-symbols-outlined-filled-cmp", version.ref = "composablehorizons-symbols" }
-kyant0-backdrop = { module = "io.github.kyant0:backdrop", version.ref = "kyant0-backdrop" }
-kyant0-shapes = { module = "io.github.kyant0:shapes", version.ref = "kyant0-shapes" }
+miuix-core = { group = "top.yukonga.miuix.kmp", name = "miuix-core-android", version.ref = "miuix" }
+miuix-ui = { group = "top.yukonga.miuix.kmp", name = "miuix-ui-android", version.ref = "miuix" }
+miuix-blur = { group = "top.yukonga.miuix.kmp", name = "miuix-blur-android", version.ref = "miuix" }
 coil = { module = "io.coil-kt.coil3:coil", version.ref = "coil" }
 
 markwon-core = { module = "io.noties.markwon:core", version.ref = "markwon" }
