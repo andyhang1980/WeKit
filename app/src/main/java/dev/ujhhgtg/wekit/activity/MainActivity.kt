@@ -423,6 +423,43 @@ private fun AppContent(resultLauncher: ActivityResultLauncher<String>, onUrlClic
                 }
             }
 
+            ElevatedCard(
+                onClick = {
+                    context.startActivity(Intent().apply {
+                        setClassName(PackageNames.WECHAT, "${PackageNames.WECHAT}.ui.LauncherUI")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        putExtra(BuildConfig.TAG, "2")
+                    })
+                    context.finishAndRemoveTask()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = MaterialSymbols.Outlined.Settings,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            text = "打开模块设置 (强制非全屏 UI)",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "如果一打开模块设置就闪退那就用这个",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
             if (showConfirmDeleteTinkerDialog) {
                 val paths = remember {
                     @Suppress("SdCardPath")

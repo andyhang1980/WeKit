@@ -35,8 +35,6 @@ object UnifiedEntryPoint {
         Application::class.resolve()
             .firstMethod { name = "attachBaseContext" }
             .hookAfterDirectly {
-                // Hook Instrumentation.callApplicationOnCreate 以确保在 Tinker 热更新完成后再进行延迟初始化
-                // 这可以解决某些模块在热更新环境下找不到入口的问题
                 Instrumentation::class.resolve()
                     .firstMethod {
                         name = "callApplicationOnCreate"

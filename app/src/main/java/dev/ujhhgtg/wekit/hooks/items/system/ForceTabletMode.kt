@@ -1,7 +1,9 @@
 package dev.ujhhgtg.wekit.hooks.items.system
 
 import android.content.Context
+import android.widget.Button
 import androidx.compose.material3.Text
+import androidx.core.view.isGone
 import dev.ujhhgtg.wekit.dexkit.abc.IResolvesDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
 import dev.ujhhgtg.wekit.hooks.core.HookItem
@@ -16,10 +18,16 @@ import org.luckypray.dexkit.DexKitBridge
 object ForceTabletMode : SwitchHookItem(), IResolvesDex {
 
     private val methodIsTablet by dexMethod()
+    private val methodOtherDeviceLoginButtonIsVisible by dexMethod()
 
     override fun onEnable() {
         methodIsTablet.hookBefore {
             result = true
+        }
+
+        methodOtherDeviceLoginButtonIsVisible.hookBefore {
+            val view = args[0] as? Button? ?: return@hookBefore
+            if (view.isGone) view.isGone = false
         }
     }
 
@@ -27,6 +35,12 @@ object ForceTabletMode : SwitchHookItem(), IResolvesDex {
         methodIsTablet.find(dexKit) {
             matcher {
                 usingEqStrings("Lenovo TB-9707F", "eebbk")
+            }
+        }
+
+        methodOtherDeviceLoginButtonIsVisible.find(dexKit) {
+            matcher {
+                usingEqStrings("loginAsOtherDeviceBtn")
             }
         }
     }

@@ -24,6 +24,7 @@ import de.robv.android.xposed.XposedHelpers
 import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.wekit.BuildConfig
 import dev.ujhhgtg.wekit.constants.PackageNames
+import dev.ujhhgtg.wekit.constants.Preferences
 import dev.ujhhgtg.wekit.dexkit.abc.IResolvesDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexClass
 import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
@@ -463,21 +464,25 @@ object WeSettingsInjector : ApiHookItem(), IResolvesDex, WeHomeScreenPopupMenuAp
                 .hookBefore {
                     val activity = thisObject as Activity
                     val intent = activity.intent ?: return@hookBefore
-                    if (intent.hasExtra(BuildConfig.TAG)) {
-                        // wait for resources & theme to init
-                        Handler(Looper.getMainLooper()).postDelayed({
-                            openSettingsDialog(activity)
-                        }, 500)
+                    val extra = intent.getStringExtra(BuildConfig.TAG) ?: return@hookBefore
+                    if (extra == "2") {
+                        Preferences.useActivityInsteadOfDialog = false
                     }
+                    // wait for resources & theme to init
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        openSettingsDialog(activity)
+                    }, 500)
                 }
 
             firstMethod { name = "onNewIntent" }
                 .hookBefore {
                     val activity = thisObject as Activity
                     val intent = args[0] as? Intent? ?: return@hookBefore
-                    if (intent.hasExtra(BuildConfig.TAG)) {
-                        openSettingsDialog(activity)
+                    val extra = intent.getStringExtra(BuildConfig.TAG) ?: return@hookBefore
+                    if (extra == "2") {
+                        Preferences.useActivityInsteadOfDialog = false
                     }
+                    openSettingsDialog(activity)
                 }
         }
     }
