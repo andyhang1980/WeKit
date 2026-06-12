@@ -73,7 +73,6 @@ object WeServiceApi : ApiHookItem(), IResolvesDex {
     }
 
     fun getImageMd5FromMsgInfo(msgInfo: MessageInfo): String {
-        val imageInfoStorage = imageInfoStorage
         return imageInfoStorage.asResolver()
             .firstMethod {
                 returnType = String::class

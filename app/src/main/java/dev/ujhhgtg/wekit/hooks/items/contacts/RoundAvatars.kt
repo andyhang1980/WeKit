@@ -1,6 +1,7 @@
 package dev.ujhhgtg.wekit.hooks.items.contacts
 
 import android.content.Context
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
@@ -16,26 +17,24 @@ import dev.ujhhgtg.wekit.hooks.core.HookItem
 import dev.ujhhgtg.wekit.preferences.WePrefs
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
-import dev.ujhhgtg.wekit.ui.content.DefaultColumn
 import dev.ujhhgtg.wekit.ui.content.TextButton
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
 import org.luckypray.dexkit.DexKitBridge
 
 @HookItem(
-    name = "圆角头像", categories = ["联系人与群组"],
+    name = "圆角头像", categories = ["联系人与群组", "界面美化"],
     description = "自定义微信全局头像渲染的圆角弧度"
 )
 object RoundAvatarHook : ClickableHookItem(), IResolvesDex {
 
     private const val KEY_ROUND_AVATAR = "round_avatar_radius_factor"
-    private const val DEFAULT_RADIUS_FACTOR = 0.5f
 
     private val methodLoadAvatar by dexMethod()
     private val ctorAvatarCreate by dexConstructor()
     private val methodAvatarModify by dexMethod()
 
     private val radiusFactor: Float
-        get() = WePrefs.getFloatOrDef(KEY_ROUND_AVATAR, DEFAULT_RADIUS_FACTOR).coerceIn(0.1f, 0.5f)
+        get() = WePrefs.getFloatOrDef(KEY_ROUND_AVATAR, 0.5f).coerceIn(0.1f, 0.5f)
 
     override fun onEnable() {
         methodLoadAvatar.hookBefore {
@@ -99,15 +98,17 @@ object RoundAvatarHook : ClickableHookItem(), IResolvesDex {
             AlertDialogContent(
                 title = { Text("圆角头像") },
                 text = {
-                    DefaultColumn {
-                        Text("圆角弧度: %.2f".format(value))
-                        Slider(
-                            value = value,
-                            onValueChange = { value = it.coerceIn(0.1f, 0.5f) },
-                            valueRange = 0.1f..0.5f,
-                            steps = 39
-                        )
-                    }
+                    ListItem(
+                        headlineContent = { Text("圆角弧度: %.2f".format(value)) },
+                        supportingContent = {
+                            Slider(
+                                value = value,
+                                onValueChange = { value = it.coerceIn(0.1f, 0.5f) },
+                                valueRange = 0.1f..0.5f,
+                                steps = 39
+                            )
+                        }
+                    )
                 },
                 dismissButton = {
                     TextButton(onDismiss) { Text("取消") }

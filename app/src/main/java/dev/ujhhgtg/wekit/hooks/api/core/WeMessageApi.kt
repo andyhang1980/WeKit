@@ -336,7 +336,7 @@ object WeMessageApi : ApiHookItem(), IResolvesDex {
             }
         }
 
-        if ((HostInfo.versionCode >= WeChatVersions.MM_8_0_67 && !HostInfo.isHostGooglePlay) ||
+        if (HostInfo.versionCode >= WeChatVersions.MM_8_0_67 && !HostInfo.isHostGooglePlay ||
             HostInfo.versionCode >= WeChatVersions.MM_8_0_66_PLAY && HostInfo.isHostGooglePlay
         ) {
             methodImgUploadFeatureServiceSendImage.find(dexKit) {

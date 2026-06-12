@@ -69,7 +69,7 @@ object DisplayGroupMemberRoles : SwitchHookItem(), IResolvesDex,
                     type = Int::class
                 }
                 .get()!! as Int
-            val senderIsGroupManager = (memberRoleFlags and 2048) != 0
+            val senderIsGroupManager = memberRoleFlags and 2048 != 0
 
             return@getOrPut if (senderIsGroupManager) 2 else 3
         }
@@ -91,8 +91,13 @@ object DisplayGroupMemberRoles : SwitchHookItem(), IResolvesDex,
             else -> unreachable()
         }
 
-        val fullText = "$roleText $displayName"
-        val sb = SpannableStringBuilder(fullText)
+        // Build by appending so that any spans already on displayName (e.g. the real-name
+        // annotation from DisplayGroupMemberRealName) are copied and their offsets shifted
+        // forward by (roleText.length + 1) rather than being discarded.
+        val sb = SpannableStringBuilder()
+        sb.append(roleText)
+        sb.append(" ")
+        sb.append(displayName)
 
         val bgColor = when (role) {
             1 -> OWNER_COLOR.toInt()

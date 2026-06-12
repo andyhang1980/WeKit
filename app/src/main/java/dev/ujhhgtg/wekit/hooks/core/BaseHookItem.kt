@@ -1,3 +1,5 @@
+@file:Suppress("NOTHING_TO_INLINE")
+
 package dev.ujhhgtg.wekit.hooks.core
 
 import com.highcapable.kavaref.resolver.ConstructorResolver
@@ -74,10 +76,10 @@ abstract class BaseHookItem {
     }
 
     internal val unhooks = mutableListOf<XC_MethodHook.Unhook>()
-    internal fun registerUnhook(u: XC_MethodHook.Unhook) {
+    internal inline fun registerUnhook(u: XC_MethodHook.Unhook) {
         unhooks += u
     }
-    internal fun unhookAll() {
+    internal inline fun unhookAll() {
         unhooks.forEach { it.unhook() }
         unhooks.clear()
     }

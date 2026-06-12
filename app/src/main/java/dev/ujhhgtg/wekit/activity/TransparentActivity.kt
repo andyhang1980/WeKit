@@ -40,6 +40,7 @@ class TransparentActivity : FragmentActivity() {
             pendingAction = action
             context.startActivity(
                 Intent(context, TransparentActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     putExtra(BuildConfig.TAG, true)
                 }
             )

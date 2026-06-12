@@ -59,13 +59,13 @@ object WeDatabaseApi : ApiHookItem(), IResolvesDex {
             .invoke()!!
     }
 
-    fun getSelfProfileField(field: SelfProfileField) =
+    fun getSelfProfileField(field: SelfProfileField, defValue: Any? = null) =
         configStorage.asResolver()
             .firstMethod {
                 parameters(Int::class, Any::class)
                 returnType = Any::class
             }
-            .invoke(field.code, null)!!
+            .invoke(field.code, defValue)!!
 
     private object SqlStatements {
         // 基础字段 - 联系人查询常用字段

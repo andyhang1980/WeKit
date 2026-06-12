@@ -64,8 +64,8 @@ import java.util.TimeZone
 import kotlin.math.abs
 import kotlin.random.Random
 
-@HookItem(name = "伪造聊天记录", categories = ["聊天"], description = "创建伪造的聊天记录并生成卡片消息 XML")
-object FabricateChatHistory : ClickableHookItem() {
+@HookItem(name = "伪造聊天记录消息", categories = ["聊天"], description = "创建伪造的聊天记录并生成卡片消息 XML")
+object FabricateChatHistoryMessage : ClickableHookItem() {
 
     override val noSwitchWidget = true
 
@@ -181,7 +181,7 @@ private fun ChatRecordXmlGeneratorDialog(
                             showToast(context, "已从剪贴板加载 ${newRows.size} 条消息")
                         }.onFailure {
                             showToast(context, "解析失败：${it.message}")
-                            WeLogger.e(nameOf(FabricateChatHistory), "failed to parse messages from clipboard", it)
+                            WeLogger.e(nameOf(FabricateChatHistoryMessage), "failed to parse messages from clipboard", it)
                         }
                     },
                     modifier = Modifier.fillMaxWidth()

@@ -67,7 +67,6 @@ import dev.ujhhgtg.wekit.hooks.api.ui.WeContactPrefsScreenApi.ContactInfoItem
 import dev.ujhhgtg.wekit.hooks.api.ui.WeContactPrefsScreenApi.IContactInfoProvider
 import dev.ujhhgtg.wekit.hooks.core.ClickableHookItem
 import dev.ujhhgtg.wekit.hooks.core.HookItem
-import dev.ujhhgtg.wekit.preferences.WePrefs
 import dev.ujhhgtg.wekit.preferences.WePrefs.Companion.prefOption
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
@@ -78,6 +77,7 @@ import dev.ujhhgtg.wekit.utils.HostInfo
 import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.android.currentWxId
 import dev.ujhhgtg.wekit.utils.android.showToast
+import dev.ujhhgtg.wekit.utils.fs.KnownPaths
 import dev.ujhhgtg.wekit.utils.reflection.BString
 import dev.ujhhgtg.wekit.utils.reflection.DexKit
 import dev.ujhhgtg.wekit.utils.reflection.bool
@@ -85,12 +85,16 @@ import dev.ujhhgtg.wekit.utils.reflection.fields
 import dev.ujhhgtg.wekit.utils.reflection.firstField
 import dev.ujhhgtg.wekit.utils.reflection.firstMethod
 import dev.ujhhgtg.wekit.utils.reflection.makeAccessible
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.io.path.div
+import kotlin.io.path.exists
+import kotlin.io.path.readText
+import kotlin.io.path.writeText
 import kotlin.math.min
 
 @HookItem(
@@ -99,12 +103,12 @@ import kotlin.math.min
 )
 object CustomContactAvatar : ClickableHookItem(), IContactInfoProvider, IResolvesDex {
 
-    private const val KEY_AVATAR_MAP = "custom_contact_avatar_map"
     private const val CONTACT_PREF_KEY = "custom_contact_avatar"
     private const val SEP = ";"
     private const val VIEW_TAG_CUSTOM_AVATAR = 0x57434156
 
     private val TAG = This.Class.simpleName
+    private val avatarMapFile = KnownPaths.moduleData / "custom_avatars_map.json"
 
     // ji1.s
     private val classAvatarGetContactServiceHelper by dexClass {
@@ -271,7 +275,7 @@ object CustomContactAvatar : ClickableHookItem(), IContactInfoProvider, IResolve
         if (avatarMap.containsKey(wxId)) {
             showContactAvatarDialog(activity, wxId)
         } else {
-            selectAvatarImage(wxId)
+            selectAvatarImage(activity, wxId)
         }
         return true
     }
@@ -284,7 +288,7 @@ object CustomContactAvatar : ClickableHookItem(), IContactInfoProvider, IResolve
                 onDismiss = onDismiss,
                 onSelectImage = { wxId ->
                     onDismiss()
-                    selectAvatarImage(wxId)
+                    selectAvatarImage(context, wxId)
                 },
                 onRemove = { wxId ->
                     removeAvatar(wxId)
@@ -507,7 +511,7 @@ object CustomContactAvatar : ClickableHookItem(), IContactInfoProvider, IResolve
                         }
                         Button(onClick = {
                             onDismiss()
-                            selectAvatarImage(wxId)
+                            selectAvatarImage(context, wxId)
                         }) {
                             Text("更换")
                         }
@@ -517,8 +521,8 @@ object CustomContactAvatar : ClickableHookItem(), IContactInfoProvider, IResolve
         }
     }
 
-    private fun selectAvatarImage(wxId: String) {
-        TransparentActivity.launch(HostInfo.application) {
+    private fun selectAvatarImage(context: Context, wxId: String) {
+        TransparentActivity.launch(context) {
             val launcher = registerForActivityResult(
                 ActivityResultContracts.PickVisualMedia()
             ) { uri ->
@@ -612,17 +616,11 @@ object CustomContactAvatar : ClickableHookItem(), IContactInfoProvider, IResolve
     }
 
     private fun loadAvatarMap(): Map<String, String> {
-        val raw = WePrefs.getStringOrDef(KEY_AVATAR_MAP, "{}")
+        if (!avatarMapFile.exists()) return emptyMap()
         return runCatching {
-            val json = JSONObject(raw)
-            buildMap {
-                val keys = json.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    val value = json.optString(key)
-                    if (key.isNotBlank() && value.isNotBlank()) put(key, value)
-                }
-            }
+            val raw = avatarMapFile.readText()
+            Json.decodeFromString<Map<String, String>>(raw)
+                .filter { it.key.isNotBlank() && it.value.isNotBlank() }
         }.getOrElse {
             WeLogger.e(TAG, "failed to parse custom avatar map", it)
             emptyMap()
@@ -630,9 +628,12 @@ object CustomContactAvatar : ClickableHookItem(), IContactInfoProvider, IResolve
     }
 
     private fun saveAvatarMap(value: Map<String, String>) {
-        val json = JSONObject()
-        value.forEach { (wxId, uri) -> json.put(wxId, uri) }
-        WePrefs.putString(KEY_AVATAR_MAP, json.toString())
+        runCatching {
+            val raw = Json.encodeToString(value)
+            avatarMapFile.writeText(raw)
+        }.onFailure {
+            WeLogger.e(TAG, "failed to save custom avatar map", it)
+        }
     }
 
     private fun loadContacts(): List<IWeContact> {

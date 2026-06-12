@@ -1,5 +1,6 @@
 package dev.ujhhgtg.wekit.hooks.items.chat
 
+import android.annotation.SuppressLint
 import android.content.Context
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.OutlinedTextField
@@ -8,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.wekit.dexkit.abc.IResolvesDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
 import dev.ujhhgtg.wekit.hooks.core.ClickableHookItem
@@ -22,6 +24,7 @@ import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.android.showToast
 import dev.ujhhgtg.wekit.utils.fs.KnownPaths
 import dev.ujhhgtg.wekit.utils.fs.createDirectoriesNoThrow
+import dev.ujhhgtg.wekit.utils.reflection.BString
 import org.luckypray.dexkit.DexKitBridge
 import java.io.File
 import java.util.Locale
@@ -31,10 +34,8 @@ import kotlin.io.path.div
 @HookItem(name = "重定向文件下载路径", categories = ["聊天"], description = "将微信接收的聊天文件保存到自定义文件夹")
 object RedirectDownloadPath : ClickableHookItem(), IResolvesDex {
 
-    private const val TAG = "RedirectDownloadPath"
-    private const val KEY_SAVE_DIR = "redirect_download_path_save_dir"
-    private const val JAVA_LANG_STRING = "java.lang.String"
-    private var saveDir by prefOption(KEY_SAVE_DIR, "")
+    private val TAG = This.Class.simpleName
+    private var saveDir by prefOption("redirect_download_path_save_dir", "")
 
     override fun onEnable() {
         methodDownloadFile.hookBefore {
@@ -105,7 +106,7 @@ object RedirectDownloadPath : ClickableHookItem(), IResolvesDex {
                         val saveDir = normalizeSaveDir(pathInput)
                         this@RedirectDownloadPath.saveDir = saveDir
                         runCatching { File(saveDir).mkdirs() }
-                        showToast(context, "已保存，后续新下载文件会使用该目录")
+                        showToast(context, "已保存, 后续新下载文件会使用该目录")
                         onDismiss()
                     }) {
                         Text("保存")
@@ -127,8 +128,8 @@ object RedirectDownloadPath : ClickableHookItem(), IResolvesDex {
                     usingStrings("VFS.VFSStrategy", "Found wrong moving file: ", "accountSalt")
                 }
 
-                paramTypes(String::class.java)
-                returnType(String::class.java)
+                paramTypes(BString)
+                returnType(BString)
             }
         }
 
@@ -143,8 +144,8 @@ object RedirectDownloadPath : ClickableHookItem(), IResolvesDex {
                     )
                 }
 
-                paramTypes("long", JAVA_LANG_STRING, JAVA_LANG_STRING, JAVA_LANG_STRING)
-                returnType(String::class.java)
+                paramTypes("long", "java.lang.String", "java.lang.String", "java.lang.String")
+                returnType(BString)
             }
         }
 
@@ -159,18 +160,18 @@ object RedirectDownloadPath : ClickableHookItem(), IResolvesDex {
                 }
 
                 paramTypes(
-                    JAVA_LANG_STRING,
+                    "java.lang.String",
                     "long",
-                    JAVA_LANG_STRING,
+                    "java.lang.String",
                     "int",
-                    JAVA_LANG_STRING,
-                    JAVA_LANG_STRING,
+                    "java.lang.String",
+                    "java.lang.String",
                     "long",
                     "int",
-                    JAVA_LANG_STRING,
+                    "java.lang.String",
                     "int"
                 )
-                returnType(String::class.java)
+                returnType(BString)
             }
         }
     }
@@ -274,8 +275,9 @@ object RedirectDownloadPath : ClickableHookItem(), IResolvesDex {
         return target == saveDir || target.startsWith("$saveDir${File.separator}")
     }
 
+    @SuppressLint("SdCardPath")
     private fun looksLikeWechatAttachPath(path: String): Boolean {
-        val normalized = path.replace('\\', '/').lowercase(Locale.ROOT)
+        val normalized = path.replace('\\', '/').lowercase()
         return normalized.startsWith("wcf://attachment/") ||
                 normalized.contains("/micromsg/") && normalized.contains("/attachment/") ||
                 normalized.startsWith("/data/data/com.tencent.mm/") ||

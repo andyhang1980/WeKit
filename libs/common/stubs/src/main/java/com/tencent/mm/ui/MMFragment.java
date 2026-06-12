@@ -1,5 +1,7 @@
 package com.tencent.mm.ui;
 
+import android.app.Activity;
+
 import com.tencent.mm.ui.widget.SwipeBackLayout;
 
 public class MMFragment {
@@ -13,6 +15,10 @@ public class MMFragment {
     }
 
     public void finish() {
+        throw new RuntimeException("Stub!");
+    }
+
+    public final Activity getContext() {
         throw new RuntimeException("Stub!");
     }
 }
