@@ -76,13 +76,9 @@ object WeSettingsInjector : ApiHookItem(), IResolveDex {
             }
 
             addMethod {
-                returnType = "int"
-                usingNumbers(1)
-            }
-
-            addMethod {
                 name = "<init>"
                 paramTypes("androidx.appcompat.app.AppCompatActivity")
+                usingNumbers(1)
             }
 
             superClass {
