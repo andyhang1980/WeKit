@@ -154,7 +154,8 @@ class MainSettingsScreen : BasePrefsScreen(BuildConfig.TAG) {
             "视频号" to MaterialSymbols.Outlined.Movie,
             "个人资料" to MaterialSymbols.Outlined.Account_circle,
             "调试" to MaterialSymbols.Outlined.Bug_report,
-            "脚本" to MaterialSymbols.Outlined.Terminal,
+            "脚本 (JS)" to MaterialSymbols.Outlined.Terminal,
+            "脚本 (Java)" to MaterialSymbols.Outlined.Terminal,
             "娱乐" to MaterialSymbols.Outlined.Comedy_mask,
             "首页右上角菜单" to MaterialSymbols.Outlined.Add_circle,
             "联系人详情页面" to MaterialSymbols.Outlined.Contact_page

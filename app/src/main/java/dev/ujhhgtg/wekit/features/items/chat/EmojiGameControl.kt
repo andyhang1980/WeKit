@@ -218,7 +218,7 @@ object EmojiGameControl : ClickableFeature(), IResolveDex {
 
             val infoType = obj.reflekt().firstField {
                 type = int
-                modifiers { it.contains(Modifiers.FINAL) }
+                modifiers(Modifiers.FINAL)
             }.get() as Int
 
             if (infoType != 0) return@hookBefore

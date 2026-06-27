@@ -10,15 +10,6 @@ import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.reflection.BInt
 import dev.ujhhgtg.wekit.utils.reflection.BString
 
-/**
- * Chatroom member management API for BeanShell scripts.
- * Mirrors WAuxv's addChatroomMember, delChatroomMember, inviteChatroomMember.
- *
- * Real WeChat classes (from wechat_8069 source, package ul/):
- *   Add:    ul.m — ctor m(String, List<String>, String, Object) — CGI 120 — log "MicroMsg.NetSceneAddChatRoomMember"
- *   Delete: ul.p — ctor p(String, List<String>, int)            — CGI 179 — log "MicroMsg.ChatroomMembersLogic"
- *   Invite: ul.x — ctor x(String, List<String>, int, Object)    — CGI 610 — log "MicroMsg.NetSceneInviteChatRoomMember"
- */
 @Feature(name = "群聊管理服务", categories = ["API"], description = "提供添加/删除/邀请群成员能力")
 object WeGroupApi : ApiFeature(), IResolveDex {
 

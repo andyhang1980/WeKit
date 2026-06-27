@@ -297,6 +297,8 @@ dependencies {
 
     implementation(libs.rhino)
 
+    implementation("com.alibaba.fastjson2:fastjson2:2.0.49")
+
     compileOnly(libs.lombok)
     annotationProcessor(libs.lombok)
 

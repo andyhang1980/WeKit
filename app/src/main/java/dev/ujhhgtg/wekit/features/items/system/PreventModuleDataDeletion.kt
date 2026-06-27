@@ -38,7 +38,7 @@ object PreventModuleDataDeletion : SwitchFeature(), IResolveDex {
                 basePathField = thisObject.reflekt()
                     .firstField {
                         type = String::class
-                        modifiers { it.contains(Modifiers.FINAL) }
+                        modifiers(Modifiers.FINAL)
                     }.self
             }
             val basePath = basePathField.get(thisObject) as String

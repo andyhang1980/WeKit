@@ -33,7 +33,10 @@ import com.composables.icons.materialsymbols.outlined.Alternate_email
 import com.composables.icons.materialsymbols.outlined.Send_time_extension
 import com.composables.icons.materialsymbols.outlined.Voice_chat
 import com.tencent.mm.pluginsdk.ui.chat.ChatFooter
+import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.wekit.activity.TransparentActivity
+import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
+import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
 import dev.ujhhgtg.wekit.features.api.core.WeApi
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
 import dev.ujhhgtg.wekit.features.api.core.WeMessageApi
@@ -54,7 +57,6 @@ import dev.ujhhgtg.wekit.utils.android.showToastSuspend
 import dev.ujhhgtg.wekit.utils.coerceToInt
 import dev.ujhhgtg.wekit.utils.fileExtension
 import dev.ujhhgtg.wekit.utils.fs.KnownPaths
-import dev.ujhhgtg.reflekt.reflekt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -68,7 +70,14 @@ import kotlin.io.path.outputStream
 import android.widget.Button as AndroidButton
 
 @Feature(name = "聊天输入栏增强", categories = ["聊天"], description = "为聊天输入栏添加更多功能\n1. 在聊天界面长按「发送」或「加号菜单」按钮打开菜单\n菜单功能: 「发送卡片消息」「@所有人」\n2. 长按「语音」按钮发送自定义语音文件 (SILK 或 MP3)")
-object ChatInputBarEnhancements : SwitchFeature() {
+object ChatInputBarEnhancements : SwitchFeature(), IResolveDex {
+
+    val methodSendMessage by dexMethod {
+        searchPackages("com.tencent.mm.pluginsdk.ui.chat")
+        matcher {
+            usingEqStrings("MicroMsg.ChatFooter", "send msg onClick")
+        }
+    }
 
     override fun onEnable() {
         ChatFooter::class.reflekt()

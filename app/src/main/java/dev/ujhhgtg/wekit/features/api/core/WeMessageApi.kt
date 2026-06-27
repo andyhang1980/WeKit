@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.ContentValues
 import com.tencent.mm.opensdk.modelmsg.WXFileObject
 import com.tencent.mm.opensdk.modelmsg.WXMediaMessage
+import com.tencent.mm.storage.emotion.EmojiInfo
 import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.reflekt.spec.VagueType
@@ -12,7 +13,6 @@ import dev.ujhhgtg.reflekt.utils.createInstance
 import dev.ujhhgtg.reflekt.utils.isBuiltin
 import dev.ujhhgtg.reflekt.utils.isStatic
 import dev.ujhhgtg.reflekt.utils.makeAccessible
-import dev.ujhhgtg.reflekt.utils.toClass
 import dev.ujhhgtg.wekit.constants.WeChatVersions
 import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexClass
@@ -44,6 +44,7 @@ import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import kotlin.concurrent.thread
 import kotlin.io.path.Path
 import kotlin.random.Random
 
@@ -55,7 +56,7 @@ object WeMessageApi : ApiFeature(), IResolveDex {
     // -------------------------------------------------------------------------------------
     // 基础消息类
     // -------------------------------------------------------------------------------------
-    private val classNetSceneSendMsg by dexClass {
+    val classNetSceneSendMsg by dexClass {
         matcher {
             methods {
                 add {
@@ -92,7 +93,7 @@ object WeMessageApi : ApiFeature(), IResolveDex {
         }
     }
     // hi0.j1::d() is identical to xv0.a9::e()
-    private val methodGetSendMsgObject by dexMethod(allowMultiple = true) {
+    val methodGetSendMsgObject by dexMethod(allowMultiple = true) {
         matcher {
             paramCount = 0
             returnType = classNetSceneObserverOwner.getDescriptorString() ?: ""
@@ -109,22 +110,17 @@ object WeMessageApi : ApiFeature(), IResolveDex {
         }
     }
 
-    // C1391: "PatMsgExtension.ClassPatMsgExtension" — used by sendPat
     private val classPatMsgExtension by dexClass {
         matcher {
-            usingEqStrings("MicroMsg.PatMsgExtension")
+            usingEqStrings("MicroMsg.PatMsgExtension", "insert pat msg %d %s %s")
         }
     }
-
-    // C1353.f4831: NetSceneSendPat — C1350 case 6, ctor 4-param (Pair, String, String, Integer)
     private val ctorNetSceneSendPat by dexConstructor {
         matcher {
             usingEqStrings("MicroMsg.NetSceneSendPat")
             paramCount(4)
         }
     }
-
-    // C1350 case 1+2: C1351.f4829 NetSceneRevokeMsg — 3-param ctor: (f8 msgInfo, String, String)
     private val ctorNetSceneRevokeMsg by dexConstructor {
         searchPackages("com.tencent.mm.modelsimple")
         matcher {
@@ -132,38 +128,25 @@ object WeMessageApi : ApiFeature(), IResolveDex {
             paramCount(3)
         }
     }
-
-    // C0460 case 11: C1339.f4817 NetSceneSendMsg (location variant) — C2812.m4143("MicroMsg.NetSceneSendMsg", "/cgi-bin/micromsg-bin/newsendmsg")
     private val ctorNetSceneSendMsgLocation by dexConstructor {
         matcher {
-            usingEqStrings("MicroMsg.NetSceneSendMsg")
-            paramCount(5)
+            usingEqStrings("MicroMsg.NetSceneSendMsg", "[mergeMsgSource] rawSource:%s args is null:%s flag:%s")
         }
     }
-
-    // C0760 case 2+4: C0662.f2775 ImportMultiVideo — 7-param ctor
-    private val ctorImportMultiVideo by dexConstructor {
-        searchPackages("com.tencent.mm.pluginsdk.model")
+    private val classImportMultiVideo by dexClass {
         matcher {
-            usingEqStrings("MicroMsg.GetVideoMetadata")
-            paramCount(7)
+            usingEqStrings("MicroMsg.ImportMultiVideo", "importVideo, target videoPath: ")
         }
     }
-
-    // C2365: "AppMessage.ClassAppMessage" — card/share message class
     private val classAppMessage by dexClass {
+        matcher {
+            usingEqStrings("MicroMsg.AppMessage", "parse amessage xml failed")
+        }
+    }
+    val methodSendAppMsg by dexMethod {
         searchPackages("com.tencent.mm.pluginsdk.model.app")
         matcher {
-            usingEqStrings("MicroMsg.AppMessage")
-        }
-    }
-
-    // C2367: "AppMsgLogic.MethodSendAppMsg" — static send method for AppMessage
-    private val methodSendAppMsg by dexMethod {
-        matcher {
-            usingEqStrings("MicroMsg.AppMsgLogic")
-            modifiers(9) // public static
-            paramCount(6)
+            usingEqStrings("MicroMsg.AppMsgLogic", "summerbig sendAppMsg attachFilePath[%s], content[%s]")
         }
     }
     private val methodShareFile by dexMethod {
@@ -548,17 +531,21 @@ object WeMessageApi : ApiFeature(), IResolveDex {
     fun sendEmoji(toUser: String, md5: String): Boolean {
         return try {
             WeLogger.i(TAG, "sending emoji: $md5 to $toUser")
-            val emojiService = WeServiceApi.emojiFeatureService
-            val prepared = emojiService.reflekt()
-                .firstMethod { parameters(String::class); returnType = String::class }
-                .invoke(md5)
-            val emojiInfoClazz = "com.tencent.mm.storage.emotion.EmojiInfo".toClass()
-            val emojiInfo = emojiInfoClazz.reflekt()
-                .firstMethod { parameters(String::class); modifiers { it.contains(Modifier.STATIC) } }
-                .invokeStatic(prepared)
-            emojiService.reflekt()
-                .firstMethod { parameters(String::class, emojiInfoClazz) }
-                .invoke(toUser, emojiInfo)
+            val emojiInfo = WeServiceApi.emojiInfoStorage.reflekt()
+                .firstMethod {
+                    parameters(String::class)
+                    returnType = EmojiInfo::class
+                }.invoke(WeServiceApi.emojiInfoStorage, md5)
+            if (emojiInfo == null) {
+                WeLogger.w(TAG, "EmojiInfo not found for md5: $md5")
+                return false
+            }
+            val methodSendEmoji = WeServiceApi.emojiMgr.reflekt().firstMethod {
+                returnType = Void.TYPE
+                parameterCount = 5
+                parameters(BString, EmojiInfo::class)
+            }
+            methodSendEmoji.invoke(WeServiceApi.emojiMgr, toUser, emojiInfo, null, null, 0)
             true
         } catch (e: Exception) { WeLogger.e(TAG, "sendEmoji failed", e); false }
     }
@@ -583,14 +570,15 @@ object WeMessageApi : ApiFeature(), IResolveDex {
                 }
                 .self
             val pair = pairMethod.invoke(patService, toUser, WeApi.selfWxId, patTargetWxId, str11, timestamp, 0L)
-            // Dispatch via background executor
-            val threadUtilsClazz = "com.tencent.threadpool.ThreadUtils".toClass()
-            threadUtilsClazz.reflekt()
-                .firstMethod { parameters(Runnable::class, String::class) }
-                .invokeStatic(Runnable {
+            // Dispatch via background thread
+            thread {
+                try {
                     val netScene = ctorNetSceneSendPat.newInstance(pair, toUser, patTargetWxId, 0)
                     WeNetSceneApi.sendNetScene(netScene)
-                }, "sendPat")
+                } catch (e: Exception) {
+                    WeLogger.e(TAG, "sendPat background task failed", e)
+                }
+            }
             true
         } catch (e: Exception) { WeLogger.e(TAG, "sendPat failed", e); false }
     }
@@ -605,10 +593,6 @@ object WeMessageApi : ApiFeature(), IResolveDex {
         } catch (e: Exception) { WeLogger.e(TAG, "sendLocation failed", e); false }
     }
 
-    /**
-     * Send a contact card.
-     * WAuxv m1784: AppMessage class (C2365) → new AppMessage(cardWxId) → static send (C2367).
-     */
     fun sendShareCard(toUser: String, cardWxId: String): Boolean {
         return try {
             WeLogger.i(TAG, "sending share card $cardWxId to $toUser")
@@ -628,7 +612,7 @@ object WeMessageApi : ApiFeature(), IResolveDex {
     fun sendVideo(toUser: String, videoPath: String): Boolean {
         return try {
             WeLogger.i(TAG, "sending video: $videoPath to $toUser")
-            val thread = ctorImportMultiVideo.newInstance(
+            val thread = classImportMultiVideo.clazz.createInstance(
                 HostInfo.application,
                 java.util.Collections.singletonList(videoPath),
                 null, toUser, 2, null, java.lang.Boolean.TRUE
@@ -655,33 +639,33 @@ object WeMessageApi : ApiFeature(), IResolveDex {
         // VFS
         classVfs.reflekt().apply {
             vfsReadMethod = firstMethod {
-                modifiers { it.contains(Modifiers.STATIC) }
+                modifiers(Modifiers.STATIC)
                 parameters(String::class)
                 returnType = InputStream::class
             }.self
 
             vfsCopyMethod = firstMethod {
-                modifiers { it.contains(Modifiers.STATIC) }
+                modifiers(Modifiers.STATIC)
                 parameters(String::class, Boolean::class)
                 returnType = OutputStream::class
             }.self
 
             vfsExistsMethod = firstMethod {
-                modifiers { it.contains(Modifiers.STATIC) }
+                modifiers(Modifiers.STATIC)
                 parameters(String::class)
                 returnType = Boolean::class
             }.self
         }
 
         pathGenMethod = classPathUtil.reflekt().firstMethod {
-            modifiers { it.contains(Modifiers.STATIC) }
+            modifiers(Modifiers.STATIC)
             parameters(VagueType, VagueType, VagueType, VagueType, Int::class)
             returnType = String::class
         }.self
 
         // Voice Components
         voiceNameGenMethod = classVoiceNameGen.reflekt().firstMethod {
-            modifiers { it.contains(Modifiers.STATIC) }
+            modifiers(Modifiers.STATIC)
             parameters(String::class, VagueType)
             returnType = String::class
         }.self
@@ -699,14 +683,14 @@ object WeMessageApi : ApiFeature(), IResolveDex {
 
         getServiceMethod = classServiceManager.reflekt()
             .firstMethod {
-                modifiers { it.contains(Modifiers.STATIC) }
+                modifiers(Modifiers.STATIC)
                 parameters(Class::class)
             }.self
 
         getSelfAliasMethod = classConfigLogic.reflekt()
             .firstMethod {
                 name { it.length <= 2 }
-                modifiers { it.contains(Modifiers.STATIC) }
+                modifiers(Modifiers.STATIC)
                 parameterCount = 0
                 returnType = String::class
             }.self
@@ -884,6 +868,50 @@ object WeMessageApi : ApiFeature(), IResolveDex {
     /** 发送私有路径下的语音文件 */
     fun sendVoice(toUser: String, path: String, durationMs: Int): Boolean {
         var succeeded = runCatching {
+            val partialPath = classVoiceLogic.reflekt()
+                .firstMethod {
+                    parameters(BString, BString)
+                    returnType = BString
+                }
+                .invokeStatic(toUser, "amr_") as String
+            val mGetAmrFullPath = methodGetAmrFullPath.method
+            val fullPath = if (mGetAmrFullPath.isStatic) {
+                mGetAmrFullPath.invoke(null, partialPath, true)
+            } else {
+                mGetAmrFullPath.invoke(WeServiceApi.getServiceByClass(mGetAmrFullPath.declaringClass), null, partialPath, true)
+            } as String
+
+            Files.copy(Path(path), Path(fullPath), StandardCopyOption.REPLACE_EXISTING)
+
+            val finalDuration = if (durationMs > 60000) 60000 else durationMs
+
+            val target = classVoiceLogic.clazz.reflekt()
+                .firstMethod {
+                    parameters {
+                        it[0] == BString && it[1] == BInt && it[2] == BInt
+                    }
+                    returnType = BBool
+                }.self
+            if (target.parameterCount == 4) {
+                target.invoke(null, partialPath, finalDuration, 0, null)
+            } else {
+                target.invoke(null, partialPath, finalDuration, 0)
+            }
+
+            val service = classSceneVoiceService.clazz.reflekt()
+                .firstMethod {
+                    returnType = methodStartRecvAndSend.method.declaringClass
+                    modifiers(Modifiers.STATIC)
+                }.invokeStatic()!!
+
+            methodStartRecvAndSend.method.invoke(null, service)
+
+            WeLogger.i(TAG, "sent voice (WAuxv method): $fullPath")
+        }.onFailure { WeLogger.e(TAG, "failed to send voice (WAuxv method)", it) }.isSuccess
+
+        if (succeeded) return true
+
+        succeeded = runCatching {
             // 尝试通过 ServiceManager 获取
             var finalServiceObj: Any? = null
             if (getServiceMethod != null) {
@@ -928,50 +956,8 @@ object WeMessageApi : ApiFeature(), IResolveDex {
                 ?: error("failed to construct voice task")
 
             methodSendVoice.method.invoke(finalServiceObj, taskObj)
-            WeLogger.i(TAG, "sent voice (method 1): $fileName")
-        }.onFailure { WeLogger.e(TAG, "failed to send voice (method 1)", it) }.isSuccess
-
-        if (succeeded) return true
-
-        succeeded = runCatching {
-            val partialPath = classVoiceLogic.reflekt()
-                .firstMethod {
-                    parameters(BString, BString)
-                    returnType = BString
-                }
-                .invokeStatic(toUser, "amr_") as String
-            val mGetAmrFullPath = methodGetAmrFullPath.method
-            val fullPath = if (mGetAmrFullPath.isStatic) {
-                mGetAmrFullPath.invoke(null, partialPath, true)
-            } else {
-                mGetAmrFullPath.invoke(WeServiceApi.getServiceByClass(mGetAmrFullPath.declaringClass), null, partialPath, true)
-            } as String
-
-            Files.copy(Path(path), Path(fullPath), StandardCopyOption.REPLACE_EXISTING)
-
-            val target = classVoiceLogic.clazz.reflekt()
-                .firstMethod {
-                    parameters {
-                        it[0] == BString && it[1] == BInt && it[2] == BInt
-                    }
-                    returnType = BBool
-                }.self
-            if (target.parameterCount == 4) {
-                target.invoke(null, fullPath, durationMs, 0, null)
-            } else {
-                target.invoke(null, fullPath, durationMs, 0)
-            }
-
-            val service = classSceneVoiceService.clazz.reflekt()
-                .firstMethod {
-                    returnType = methodStartRecvAndSend.method.declaringClass
-                    modifiers { it.contains(Modifiers.STATIC) }
-                }.invokeStatic()!!
-
-            methodStartRecvAndSend.method.invoke(null, service)
-
-            WeLogger.i(TAG, "sent voice (method 2): $fullPath")
-        }.onFailure { WeLogger.e(TAG, "failed to send voice (method 2)", it) }.isSuccess
+            WeLogger.i(TAG, "sent voice (Service method): $fileName")
+        }.onFailure { WeLogger.e(TAG, "failed to send voice (Service method)", it) }.isSuccess
 
         return succeeded
     }

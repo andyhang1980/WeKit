@@ -233,7 +233,7 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
 
         /** 分页获取消息 */
         fun messages(wxid: String, limit: Int, offset: Int) = """
-            SELECT msgId, talker, content, type, createTime, isSend
+            SELECT msgId, msgSvrId, talker, content, type, createTime, isSend
             FROM message
             WHERE talker='$wxid'
             ORDER BY createTime DESC
@@ -267,7 +267,7 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
          * 支持群聊（通过 content 匹配对方，或通过 isSend 匹配自己）与单聊
          */
         fun messagesFromSender(convId: String, senderId: String) = """
-            SELECT msgId, talker, content, type, createTime, isSend
+            SELECT msgId, msgSvrId, talker, content, type, createTime, isSend
             FROM message
             WHERE talker = '$convId'
               AND (
@@ -584,6 +584,7 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
         return executeQuery(SqlStatements.messages(convId, pageSize, offset)).map { row ->
             WeMessage(
                 msgId = row.long("msgId"),
+                msgSvrId = row.long("msgSvrId"),
                 talker = row.str("talker"),
                 content = row.str("content"),
                 typeCode = row.int("type"),
@@ -613,6 +614,7 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
             return executeQuery(sql).map { row ->
                 WeMessage(
                     msgId = row.long("msgId"),
+                    msgSvrId = row.long("msgSvrId"),
                     talker = row.str("talker"),
                     content = row.str("content"),
                     typeCode = row.int("type"),

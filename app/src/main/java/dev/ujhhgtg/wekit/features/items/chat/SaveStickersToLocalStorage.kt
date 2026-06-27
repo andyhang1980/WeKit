@@ -1,8 +1,9 @@
 package dev.ujhhgtg.wekit.features.items.chat
 
-import dev.ujhhgtg.reflekt.utils.Modifiers
 import com.tencent.mm.plugin.gif.MMWXGFJNI
 import dev.ujhhgtg.comptime.This
+import dev.ujhhgtg.reflekt.reflekt
+import dev.ujhhgtg.reflekt.utils.Modifiers
 import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexClass
 import dev.ujhhgtg.wekit.features.api.ui.WeChatMessageContextMenuApi
@@ -12,7 +13,6 @@ import dev.ujhhgtg.wekit.ui.utils.DownloadIcon
 import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.android.showToastSuspend
 import dev.ujhhgtg.wekit.utils.fs.KnownPaths
-import dev.ujhhgtg.reflekt.reflekt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -55,11 +55,11 @@ object SaveStickersToLocalStorage : SwitchFeature(), IResolveDex,
                 DownloadIcon,
                 { msgInfo -> msgInfo.type?.isSticker ?: false }
             ) { _, _, msgInfo ->
-                val md5 = msgInfo.imagePath
+                val md5 = msgInfo.imagePath!!
                 val emojiInfo = StickersSync.getEmojiInfoByMd5(md5)
                 val emojiFileEncryptMgr = classEmojiFileEncryptMgr.reflekt()
                     .firstMethod {
-                        modifiers { it.contains(Modifiers.STATIC) }
+                        modifiers(Modifiers.STATIC)
                         parameterCount = 0
                     }
                     .invokeStatic()!!

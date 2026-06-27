@@ -3,9 +3,11 @@ package dev.ujhhgtg.wekit.features.api.ui
 import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.reflekt.utils.Modifiers
+import dev.ujhhgtg.reflekt.utils.createInstance
 import dev.ujhhgtg.reflekt.utils.toClass
 import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexClass
+import dev.ujhhgtg.wekit.dexkit.dsl.dexConstructor
 import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
 import dev.ujhhgtg.wekit.features.core.ApiFeature
 import dev.ujhhgtg.wekit.features.core.Feature
@@ -95,7 +97,7 @@ object WeMomentsApi : ApiFeature(), IResolveDex {
 
     private val sendLikeMethod: Method by lazy {
         classSnsService.reflekt().firstMethod {
-            modifiers { it.contains(Modifiers.STATIC) }
+            modifiers(Modifiers.STATIC)
             parameterCount(4)
             parameters {
                 it[0] == snsInfoClass &&
@@ -104,6 +106,112 @@ object WeMomentsApi : ApiFeature(), IResolveDex {
             }
             returnType { it != void }
         }.self
+    }
+
+    val classUploadPackHelper by dexClass {
+        searchPackages("com.tencent.mm.plugin.sns.model")
+        matcher {
+            usingEqStrings("MicroMsg.UploadPackHelper", "commit sns info ret %d, typeFlag %d sightMd5 %s")
+        }
+    }
+
+    val classSnsMediaObj by dexClass {
+        matcher {
+            usingEqStrings("MicroMsg.snsMediaStorage", "convertImg2WxamWithoutZip origPath:%s OutOfMemoryError! rollback")
+        }
+    }
+
+    val ctorUploadPackHelper by dexConstructor {
+        searchPackages("com.tencent.mm.plugin.sns.model")
+        matcher {
+            declaredClass(classUploadPackHelper.clazz)
+            paramCount(2)
+        }
+    }
+
+    val methodCommit by dexMethod {
+        searchPackages("com.tencent.mm.plugin.sns.model")
+        matcher {
+            declaredClass(classUploadPackHelper.clazz)
+            usingEqStrings("commit", "com.tencent.mm.plugin.sns.model.UploadPackHelper")
+        }
+    }
+
+    val methodSetContentDes by dexMethod {
+        searchPackages("com.tencent.mm.plugin.sns.model")
+        matcher {
+            declaredClass(classUploadPackHelper.clazz)
+            usingEqStrings("setContentDes", "com.tencent.mm.plugin.sns.model.UploadPackHelper")
+        }
+    }
+
+    val methodSetSdkId by dexMethod {
+        searchPackages("com.tencent.mm.plugin.sns.model")
+        matcher {
+            declaredClass(classUploadPackHelper.clazz)
+            usingEqStrings("setSdkId", "com.tencent.mm.plugin.sns.model.UploadPackHelper")
+        }
+    }
+
+    val methodSetSdkAppName by dexMethod {
+        searchPackages("com.tencent.mm.plugin.sns.model")
+        matcher {
+            declaredClass(classUploadPackHelper.clazz)
+            usingEqStrings("setSdkAppName", "com.tencent.mm.plugin.sns.model.UploadPackHelper")
+        }
+    }
+
+    val methodSetUploadList by dexMethod {
+        searchPackages("com.tencent.mm.plugin.sns.model")
+        matcher {
+            declaredClass(classUploadPackHelper.clazz)
+            usingEqStrings("setUploadList", "com.tencent.mm.plugin.sns.model.UploadPackHelper")
+        }
+    }
+
+    fun uploadText(content: String, sdkId: String? = null, sdkAppName: String? = null): Boolean {
+        return try {
+            val helper = ctorUploadPackHelper.constructor.newInstance(2, null)
+            methodSetContentDes.method.invoke(helper, content)
+            if (!sdkId.isNullOrEmpty()) {
+                methodSetSdkId.method.invoke(helper, sdkId)
+            }
+            if (!sdkAppName.isNullOrEmpty()) {
+                methodSetSdkAppName.method.invoke(helper, sdkAppName)
+            }
+            methodCommit.method.invoke(helper)
+            true
+        } catch (e: Exception) {
+            WeLogger.e(TAG, "uploadText failed", e)
+            false
+        }
+    }
+
+    fun uploadTextAndPicList(content: String, picPaths: List<String>, sdkId: String? = null, sdkAppName: String? = null): Boolean {
+        return try {
+            val helper = ctorUploadPackHelper.constructor.newInstance(1, null)
+            methodSetContentDes.method.invoke(helper, content)
+
+            val mediaList = ArrayList<Any>()
+            for (picPath in picPaths) {
+                val mediaObj = classSnsMediaObj.clazz.createInstance(picPath, 2)
+                mediaList.add(mediaObj)
+            }
+
+            methodSetUploadList.method.invoke(helper, mediaList)
+
+            if (!sdkId.isNullOrEmpty()) {
+                methodSetSdkId.method.invoke(helper, sdkId)
+            }
+            if (!sdkAppName.isNullOrEmpty()) {
+                methodSetSdkAppName.method.invoke(helper, sdkAppName)
+            }
+            methodCommit.method.invoke(helper)
+            true
+        } catch (e: Exception) {
+            WeLogger.e(TAG, "uploadTextAndPicList failed", e)
+            false
+        }
     }
 
     fun like(snsInfo: Any?, sourceScene: Int = 0): ActionResult =

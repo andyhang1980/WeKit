@@ -19,12 +19,12 @@ object WeContactApi : ApiFeature(), IResolveDex {
         }
     }
 
-    fun verifyUser(userId: String, ticket: String, scene: Int) {
+    fun verifyUser(userId: String, ticket: String, scene: Int, privacy: Int = 0) {
         try {
-            val netScene = ctorNetSceneVerifyUser.newInstance(3, userId, ticket, scene, "", 0)
+            val netScene = ctorNetSceneVerifyUser.newInstance(3, userId, ticket, scene, "", privacy)
             WeNetSceneApi.sendNetScene(netScene)
         } catch (e: Exception) {
-            WeLogger.e("WeSecurityApi", "verifyUser failed", e)
+            WeLogger.e("WeContactApi", "verifyUser failed", e)
         }
     }
 }

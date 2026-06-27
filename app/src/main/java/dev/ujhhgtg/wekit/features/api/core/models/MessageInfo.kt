@@ -37,7 +37,7 @@ class MessageInfo(val instance: Any) {
             return text
         }
 
-    val imagePath by lazy { getFieldByName<String>(instance, "field_imgPath") }
+    val imagePath by lazy { getFieldByName<String?>(instance, "field_imgPath") }
     val lvBuffer by lazy { getFieldByName<ByteArray>(instance, "field_lvbuffer") }
     val talkerId by lazy { getFieldByName<Int>(instance, "field_talkerId") }
     val seq by lazy { getFieldByName<Long>(instance, "field_msgSeq") }
@@ -143,7 +143,7 @@ class MessageInfo(val instance: Any) {
     companion object {
         @Suppress("UNCHECKED_CAST")
         private inline fun <T> getFieldByName(instance: Any, name: String): T {
-            return instance.reflekt().getField(name, true)!! as T
+            return instance.reflekt().getField(name, true) as T
         }
 
         /**

@@ -36,7 +36,7 @@ object RedirectHostLogs : ClickableFeature() {
                 firstMethod {
                     name = "v"
                     parameterCount = 3
-                    modifiers { it.contains(Modifiers.STATIC) }
+                    modifiers(Modifiers.STATIC)
                 }.hookBefore {
                     runCatching {
                         val tag = args[0] as String
@@ -50,7 +50,7 @@ object RedirectHostLogs : ClickableFeature() {
                 firstMethod {
                     name = "d"
                     parameterCount = 3
-                    modifiers { it.contains(Modifiers.STATIC) }
+                    modifiers(Modifiers.STATIC)
                 }.hookBefore {
                     runCatching {
                         val tag = args[0] as String
@@ -64,7 +64,7 @@ object RedirectHostLogs : ClickableFeature() {
                 firstMethod {
                     name = "i"
                     parameterCount = 3
-                    modifiers { it.contains(Modifiers.STATIC) }
+                    modifiers(Modifiers.STATIC)
                 }.hookBefore {
                     runCatching {
                         val tag = args[0] as String
@@ -78,7 +78,7 @@ object RedirectHostLogs : ClickableFeature() {
                 firstMethod {
                     name = "w"
                     parameterCount = 3
-                    modifiers { it.contains(Modifiers.STATIC) }
+                    modifiers(Modifiers.STATIC)
                 }.hookBefore {
                     runCatching {
                         val tag = args[0] as String
@@ -92,7 +92,7 @@ object RedirectHostLogs : ClickableFeature() {
                 firstMethod {
                     name = "e"
                     parameterCount = 3
-                    modifiers { it.contains(Modifiers.STATIC) }
+                    modifiers(Modifiers.STATIC)
                 }.hookBefore {
                     runCatching {
                         val tag = args[0] as String

@@ -333,11 +333,11 @@ object WeSettingsInjector : ApiFeature(), IResolveDex {
                 }.name
             mGetGroupNameResId = methodSettingGroupPersonalInfoGetGroupNameResId.method.name
             mGetSwitchState = classBaseSettingSwitchItem.reflekt().firstMethod {
-                modifiers { it.contains(Modifier.ABSTRACT) }
+                modifiers(Modifier.ABSTRACT)
                 returnType = bool
             }.name
             mGetSwitchProperty = classBaseSettingSwitchItem.reflekt().firstMethod {
-                modifiers { it.contains(Modifier.ABSTRACT) }
+                modifiers(Modifier.ABSTRACT)
                 returnType { !it.isBuiltin }
             }.name
 

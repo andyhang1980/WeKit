@@ -61,7 +61,7 @@ object SaveVoicesToLocalStorage : SwitchFeature(), IResolveDex,
                 { msgInfo -> msgInfo.typeCode == MessageType.VOICE.code }
             ) { _, _, msgInfo ->
                 CoroutineScope(Dispatchers.IO).launch {
-                    val encPath = msgInfo.imagePath
+                    val encPath = msgInfo.imagePath!!
                     var service: Any? = null
                     if (!Modifier.isStatic(methodGetAmrFullPath.method.modifiers)) {
                         service =

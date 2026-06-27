@@ -28,7 +28,7 @@ object MonitorGroupMemberLeave : SwitchFeature(), IResolveDex, WeDatabaseListene
         methodHandleSpanClick.hookBefore {
             val url = args[1].reflekt().firstField {
                 type = BString
-                modifiers { it.contains(Modifiers.FINAL) }
+                modifiers(Modifiers.FINAL)
             }.get()!! as String
             if (!url.startsWith("weixin://weixinhongbao/wekit/chatroom_userinfo/")) return@hookBefore
 

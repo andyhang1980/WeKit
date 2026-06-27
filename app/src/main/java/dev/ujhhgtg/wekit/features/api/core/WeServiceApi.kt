@@ -85,11 +85,37 @@ object WeServiceApi : ApiFeature(), IResolveDex {
             usingEqStrings("MicroMsg.VideoService", "MicroMsg.SubCoreVideo", "quitVideoSendThread")
         }
     }
+    val classEmojiMgrImpl by dexClass {
+        matcher {
+            usingEqStrings("MicroMsg.emoji.EmojiMgrImpl", "sendEmoji: context is null")
+        }
+    }
+    val classEmojiInfoStorage by dexClass {
+        matcher {
+            usingEqStrings("MicroMsg.emoji.EmojiInfoStorage", "md5 is null or invalue. md5:%s")
+        }
+    }
 
-    val classApiManager: Class<*> by lazy { methodApiManagerGetApi.method.declaringClass }
+    val apiManagerClass: Class<*> by lazy { methodApiManagerGetApi.method.declaringClass }
 
     val emojiFeatureService by lazy {
         getServiceByClass(classEmojiFeatureService.clazz)
+    }
+
+    val emojiMgr by lazy {
+        emojiFeatureService.reflekt()
+            .firstMethod {
+                parameterCount = 0
+                returnType = classEmojiMgrImpl.clazz
+            }.invoke(emojiFeatureService)!!
+    }
+
+    val emojiInfoStorage by lazy {
+        emojiFeatureService.reflekt()
+            .firstMethod {
+                parameterCount = 0
+                returnType = classEmojiInfoStorage.clazz
+            }.invoke(emojiFeatureService)!!
     }
 
     val storageFeatureService by lazy {
@@ -124,7 +150,7 @@ object WeServiceApi : ApiFeature(), IResolveDex {
     val imageInfoStorage by lazy {
         classImageFeatureService.reflekt()
             .firstMethod {
-                modifiers { it.contains(Modifiers.STATIC) }
+                modifiers(Modifiers.STATIC)
                 returnType = classImageInfoStorage.clazz
             }.invokeStatic()!!
     }
@@ -140,14 +166,14 @@ object WeServiceApi : ApiFeature(), IResolveDex {
     val videoPathFeatureService by lazy {
         classVideoService.reflekt()
             .firstMethod {
-                modifiers { it.contains(Modifiers.STATIC) }
+                modifiers(Modifiers.STATIC)
                 returnType = methodVideoPathFeatureServiceRestoreMp4Path.method.declaringClass
             }.invokeStatic()!!
     }
 
     fun getVideoMp4PathFromMsgInfo(msgInfo: MessageInfo): String {
         return methodVideoPathFeatureServiceRestoreMp4Path.method.invoke(
-            videoPathFeatureService, msgInfo.imagePath
+            videoPathFeatureService, msgInfo.imagePath!!
         ) as String
     }
 

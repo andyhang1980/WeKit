@@ -5,16 +5,24 @@ import android.app.NotificationManager
 import bsh.BshMethod
 import bsh.NameSpace
 import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
+import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.reflekt.utils.Modifiers
+import dev.ujhhgtg.reflekt.utils.createInstance
+import dev.ujhhgtg.reflekt.utils.toClass
+import dev.ujhhgtg.wekit.BuildConfig
 import dev.ujhhgtg.wekit.features.api.core.WeApi
+import dev.ujhhgtg.wekit.features.api.core.WeAuthApi
 import dev.ujhhgtg.wekit.features.api.core.WeContactApi
 import dev.ujhhgtg.wekit.features.api.core.WeContactLabelApi
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
 import dev.ujhhgtg.wekit.features.api.core.WeGroupApi
 import dev.ujhhgtg.wekit.features.api.core.WeMessageApi
+import dev.ujhhgtg.wekit.features.api.core.WePaymentApi
 import dev.ujhhgtg.wekit.features.api.core.models.MessageType
+import dev.ujhhgtg.wekit.features.api.net.WeNetSceneApi
+import dev.ujhhgtg.wekit.features.api.ui.WeCurrentConversationApi
+import dev.ujhhgtg.wekit.features.api.ui.WeMomentsApi
 import dev.ujhhgtg.wekit.utils.AudioUtils
 import dev.ujhhgtg.wekit.utils.HostInfo
 import dev.ujhhgtg.wekit.utils.WeLogger
@@ -24,14 +32,19 @@ import dev.ujhhgtg.wekit.utils.fs.KnownPaths
 import dev.ujhhgtg.wekit.utils.fs.asPath
 import dev.ujhhgtg.wekit.utils.reflection.BString
 import dev.ujhhgtg.wekit.utils.reflection.ClassLoaders
+import dev.ujhhgtg.wekit.utils.reflection.bool
 import dev.ujhhgtg.wekit.utils.reflection.float
 import dev.ujhhgtg.wekit.utils.reflection.int
 import dev.ujhhgtg.wekit.utils.reflection.long
+import me.hd.wauxv.data.bean.MsgInfoBean
 import org.json.JSONArray
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.lang.reflect.Member
+import java.lang.reflect.Proxy
+import java.nio.file.Files
 import java.util.Properties
 import java.util.function.Consumer
 import java.util.function.Function
@@ -41,45 +54,99 @@ import kotlin.io.path.deleteExisting
 
 object JavaEngine {
 
-    private const val TAG = "JavaEngine"
+    private val TAG = This.Class.simpleName
     private const val WA_MODULE_VER = 1418
-
-    @Volatile
-    var currentTargetTalker: String = ""
-        private set
-
-    @Volatile
-    private var targetTalkerHooked = false
-
-    private fun ensureTargetTalkerTracked() {
-        if (targetTalkerHooked) return
-        targetTalkerHooked = true
-        try {
-            XposedBridge.hookAllMethods(
-                ClassLoaders.HOST.loadClass("com.tencent.mm.pluginsdk.ui.chat.ChatFooter"),
-                "setUserName",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val talker = param.args.firstOrNull() as? String
-                        if (talker != null) {
-                            currentTargetTalker = talker
-                        }
-                    }
-                })
-        } catch (e: Exception) {
-            WeLogger.w(TAG, "failed to hook ChatFooter.setUserName for targetTalker tracking", e)
-        }
-    }
+    private const val WA_API = 127
 
     fun executeAllOnLoad(scripts: Map<String, JavaPlugin>) {
-        ensureTargetTalkerTracked()
-        for ((name, plugin) in scripts) {
+        scripts.values.forEach { plugin ->
             try {
                 initPlugin(plugin)
                 plugin.interpreter.eval(plugin.content)
-                WeLogger.d(TAG, "executed plugin '$name'")
+
+                val bshMethod = plugin.interpreter.nameSpace.getMethod("onLoad", emptyArray())
+                bshMethod?.apply {
+                    invoke(arrayOf(), plugin.interpreter)
+                    WeLogger.i(TAG, "onLoad executed for script ${plugin.name}")
+                }
             } catch (e: Exception) {
-                WeLogger.e(TAG, "failed to execute plugin '$name'", e)
+                WeLogger.e(TAG, "onLoad execution failed for script ${plugin.name}", e)
+            }
+        }
+    }
+
+    fun executeAllOnUnload(scripts: Map<String, JavaPlugin>) {
+        scripts.values.forEach { plugin ->
+            try {
+                val bshMethod = plugin.interpreter.nameSpace.getMethod("onUnload", emptyArray())
+                bshMethod?.apply {
+                    invoke(emptyArray(), plugin.interpreter)
+                    WeLogger.i(TAG, "onUnload executed for script ${plugin.name}")
+                }
+            } catch (e: Exception) {
+                WeLogger.e(TAG, "onUnload execution failed for script ${plugin.name}", e)
+            }
+        }
+    }
+
+    fun executeAllOnHandleMsg(scripts: Map<String, JavaPlugin>,
+                              msgBean: MsgInfoBean) {
+        scripts.values.forEach { plugin ->
+            try {
+                val bshMethod = plugin.interpreter.nameSpace.getMethod(
+                    "onHandleMsg",
+                    arrayOf(MsgInfoBean::class.java)
+                )
+                bshMethod?.apply {
+                    invoke(arrayOf(msgBean), plugin.interpreter)
+                    WeLogger.i(TAG, "onHandleMsg executed for script ${plugin.name}")
+                }
+            } catch (e: Exception) {
+                WeLogger.e(TAG, "onHandleMsg execution failed for script ${plugin.name}", e)
+            }
+        }
+    }
+
+    fun executeAllOnClickSendBtn(scripts: Map<String, JavaPlugin>,
+                                 param: XC_MethodHook.MethodHookParam,
+                                 text: String) {
+        scripts.values.forEach { plugin ->
+            try {
+                val bshMethod = plugin.interpreter.nameSpace.getMethod(
+                    "onClickSendBtn",
+                    arrayOf(BString)
+                )
+                bshMethod?.apply {
+                    val ifIntercept = invoke(arrayOf(text), plugin.interpreter)
+                    WeLogger.i(TAG, "onClickSendBtn executed for script ${plugin.name}; ifIntercept=${ifIntercept}")
+                    if (ifIntercept == true) {
+                        param.result = null
+                    }
+                }
+            } catch (e: Exception) {
+                WeLogger.e(TAG, "onClickSendBtn execution failed for script ${plugin.name}", e)
+            }
+        }
+    }
+
+    fun executeAllOnMemberChange(scripts: Map<String, JavaPlugin>,
+                                 type: String,
+                                 groupWxid: String,
+                                 userWxid: String,
+                                 userName: String
+    ) {
+        scripts.values.forEach { plugin ->
+            try {
+                val bshMethod = plugin.interpreter.nameSpace.getMethod(
+                    "onMemberChange",
+                    arrayOf(String::class.java, String::class.java, String::class.java, String::class.java)
+                )
+                bshMethod?.apply {
+                    invoke(arrayOf(type, groupWxid, userWxid, userName), plugin.interpreter)
+                    WeLogger.i(TAG, "onMemberChange executed for script ${plugin.name}")
+                }
+            } catch (e: Exception) {
+                WeLogger.e(TAG, "onMemberChange execution failed for script ${plugin.name}", e)
             }
         }
     }
@@ -88,7 +155,7 @@ object JavaEngine {
         val interpreter = plugin.interpreter
 
         val classManager = interpreter.classManager
-        classManager.setClassLoader(ClassLoaders.MODULE)
+        classManager.setClassLoader(ClassLoaders.HYBRID)
 
         val nameSpace = interpreter.nameSpace
         initNameSpace(nameSpace, plugin)
@@ -96,20 +163,39 @@ object JavaEngine {
 
     fun initNameSpace(nameSpace: NameSpace, plugin: JavaPlugin) {
         nameSpace.apply {
-            // ===== Basic Info =====
+            // ===== Host Info =====
 
-            setVariable("hostContext", HostInfo.application, true)
-            setVariable("hostVerName", HostInfo.versionName, true)
-            setVariable("hostVerCode", HostInfo.versionCode.toInt(), true)
-            setVariable("hostVerClient", com.tencent.mm.boot.BuildConfig.CLIENT_VERSION_ARM64, true)
-            setVariable("moduleVer", WA_MODULE_VER, true)
-            setVariable("cacheDir", KnownPaths.moduleCache.absolutePathString(), true)
-            setVariable("pluginDir", plugin.dir.absolutePathString(), true)
-            setVariable("pluginId", plugin.name, true)
-            setVariable("pluginName", plugin.info.name, true)
-            setVariable("pluginAuthor", plugin.info.author, true)
-            setVariable("pluginVersion", plugin.info.version, true)
-            setVariable("pluginUpdateTime", plugin.info.updateTime, true)
+            setVariable("hostContext", HostInfo.application)
+            setVariable("hostVerName", HostInfo.versionName)
+            setVariable("hostVerCode", HostInfo.versionCode.toInt())
+            setVariable("hostVerClient", com.tencent.mm.boot.BuildConfig.CLIENT_VERSION_ARM64)
+
+            // ===== Compat Info =====
+
+            setVariable("moduleVer", WA_MODULE_VER)
+
+            // ===== FileSystem Info =====
+
+            setVariable("cacheDir", KnownPaths.moduleCache.absolutePathString())
+
+            // ===== Plugin Info =====
+
+            setVariable("pluginDir", plugin.dir.absolutePathString())
+            setVariable("pluginId", plugin.name)
+            setVariable("pluginName", plugin.info.name)
+            setVariable("pluginAuthor", plugin.info.author)
+            setVariable("pluginVersion", plugin.info.version)
+            setVariable("pluginUpdateTime", plugin.info.updateTime)
+
+            // ===== Engine Info =====
+
+            setVariable("engineId", BuildConfig.TAG)
+            setVariable("engineVerCode", BuildConfig.VERSION_CODE)
+            setVariable("engineVerName", BuildConfig.VERSION_NAME)
+            setVariable("engineSupportedLatestApi", WA_API)
+            setVariable("engineFeatures", hashSetOf(
+                "AUDIO", "CONFIG", "CONTACT", "HOOK", "HTTP", "MEDIAMSG", "MSG", "OTHER", "REFLECT", "SNS"
+            ))
 
             // ===== Audio Utils =====
 
@@ -273,12 +359,12 @@ object JavaEngine {
             // getLong(key, default)
             setMethod(BshMethod(
                 "getLong", arrayOf(BString, long)
-            ) {
-                val key = it[0] as String
-                val def = it[1] as Long
+            ) { args ->
+                val key = args[0] as String
+                val def = args[1] as Long
                 val raw = loadConfig(plugin).getProperty(key)
                 if (raw != null) {
-                    raw.toLongOrNull()?.let { it -> return@BshMethod it }
+                    raw.toLongOrNull()?.let { return@BshMethod it }
                 }
                 return@BshMethod def
             })
@@ -388,7 +474,7 @@ object JavaEngine {
                 } else {
                     plugin.dir.resolve(path).toFile().canonicalPath
                 }
-                val dexBytes = java.nio.file.Files.readAllBytes(File(resolved).toPath())
+                val dexBytes = Files.readAllBytes(File(resolved).toPath())
                 val loader = dalvik.system.InMemoryDexClassLoader(
                     java.nio.ByteBuffer.wrap(dexBytes), ClassLoaders.MODULE
                 )
@@ -442,14 +528,14 @@ object JavaEngine {
             setMethod(BshMethod(
                 "getTargetTalker", emptyArray<Class<*>>()
             ) {
-                return@BshMethod currentTargetTalker
+                return@BshMethod WeCurrentConversationApi.value
             })
 
             // setTargetTalker(wxId) → manually set current talker
             setMethod(BshMethod(
                 "setTargetTalker", arrayOf(BString)
             ) {
-                currentTargetTalker = it[0] as String
+                WeCurrentConversationApi.value = it[0] as String
             })
 
             // getLoginWxid() → current logged-in wxid
@@ -589,6 +675,64 @@ object JavaEngine {
                 return@BshMethod runCatching {
                     WeMessageApi.sendText(toUser, text)
                 }.getOrDefault(false)
+            })
+
+            // sendText(toUser, text, callback)
+            setMethod(BshMethod(
+                "sendText", arrayOf(BString, BString, Consumer::class.java)
+            ) {
+                val toUser = it[0] as String
+                val text = it[1] as String
+                @Suppress("UNCHECKED_CAST")
+                val cb = it[2] as Consumer<Long?>
+                thread {
+                    runCatching {
+//                        val sendMsgObject = WeMessageApi.methodGetSendMsgObject.method.invoke(null) ?: return@thread
+                        val msgObj = WeMessageApi.classNetSceneSendMsg.clazz.createInstance(toUser, text, 1, 0, null)
+
+                        val queue = WeNetSceneApi.classMmKernel.clazz.reflekt()
+                            .firstMethod {
+                                returnType = WeNetSceneApi.methodAddNetSceneToQueue.method.declaringClass
+                            }.invokeStatic()!!
+
+                        val getDispatcherMethod = queue.javaClass.methods.first { method ->
+                            method.parameterCount == 0 &&
+                            method.returnType.isInterface &&
+                            method.returnType.name.startsWith("com.tencent.mm.")
+                        }
+                        val dispatcher = getDispatcherMethod.invoke(queue)
+
+                        val doSceneMethod = msgObj.javaClass.reflekt().firstMethod {
+                            name = "doScene"
+                        }
+                        val callbackInterface = doSceneMethod.parameterTypes[1]
+
+                        val callbackProxy = Proxy.newProxyInstance(
+                            ClassLoaders.HOST,
+                            arrayOf(callbackInterface)
+                        ) { _, method, args ->
+                            if (method.name == "onSceneEnd") {
+                                try {
+                                    val errType = args[0] as Int
+                                    val errCode = args[1] as Int
+                                    val scene = args[3]
+                                    if (errType == 0 && errCode == 0 && scene != null) {
+                                        val lastMsgSvrId = WeDatabaseApi.getMessages(toUser, 1, 1).firstOrNull()?.msgId
+                                        cb.accept(lastMsgSvrId)
+                                    } else {
+                                        cb.accept(null)
+                                    }
+                                } catch (_: Throwable) {
+                                    cb.accept(null)
+                                }
+                            }
+                            null
+                        }
+
+                        doSceneMethod.invoke(msgObj, dispatcher, callbackProxy)
+                    }.onFailure { cb.accept(null) }
+                }
+                return@BshMethod null
             })
 
             // sendImage(toUser, imgPath) → Boolean
@@ -755,20 +899,31 @@ object JavaEngine {
 
             // ===== Contact Labels (Step 3c) =====
 
-            // getContactLabelList() → list of ContactLabel
+            // getContactLabelList() → list of ContactLabelBean
             setMethod(BshMethod(
                 "getContactLabelList", emptyArray<Class<*>>()
             ) {
                 return@BshMethod runCatching {
-                    WeContactLabelApi.getAllLabels()
+                    WeContactLabelApi.getAllLabels().map { label -> me.hd.wauxv.data.bean.ContactLabelBean(label) }
                 }.getOrDefault(emptyList<Any>())
             })
 
-            // getContactByLabelId(id) → list of wxid strings
+            // getContactByLabelId(id) → list of wxid strings (Integer label ID)
             setMethod(BshMethod(
                 "getContactByLabelId", arrayOf(int)
             ) {
                 val labelId = it[0] as Int
+                return@BshMethod runCatching {
+                    WeContactLabelApi.getContactsByLabelId(labelId)
+                }.getOrDefault(emptyList<Any>())
+            })
+
+            // getContactByLabelId(id) → list of wxid strings (String label ID)
+            setMethod(BshMethod(
+                "getContactByLabelId", arrayOf(BString)
+            ) {
+                val labelIdStr = it[0] as String
+                val labelId = labelIdStr.toIntOrNull() ?: 0
                 return@BshMethod runCatching {
                     WeContactLabelApi.getContactsByLabelId(labelId)
                 }.getOrDefault(emptyList<Any>())
@@ -792,6 +947,14 @@ object JavaEngine {
             ) {
                 val userId = it[0] as String; val ticket = it[1] as String; val scene = it[2] as Int
                 runCatching { WeContactApi.verifyUser(userId, ticket, scene) }
+            })
+
+            // verifyUser(userId, ticket, scene, privacy) → opens verify UI
+            setMethod(BshMethod(
+                "verifyUser", arrayOf(BString, BString, int, int)
+            ) {
+                val userId = it[0] as String; val ticket = it[1] as String; val scene = it[2] as Int; val privacy = it[3] as Int
+                runCatching { WeContactApi.verifyUser(userId, ticket, scene, privacy) }
             })
 
             // ===== Chatroom Management =====
@@ -887,12 +1050,43 @@ object JavaEngine {
                 return@BshMethod JavaHookApi.hookReplace(member, function)
             })
 
-            // unhook(id) → remove a hook
+            // unhook(handle) → remove a hook
             setMethod(BshMethod(
-                "unhook", arrayOf(BString)
+                "unhook", arrayOf(me.hd.wauxv.hook.HookHandle::class.java)
             ) {
-                val id = it[0] as String
-                JavaHookApi.unhook(id)
+                val handle = it[0] as me.hd.wauxv.hook.HookHandle
+                JavaHookApi.unhook(handle)
+            })
+
+            // === DexKit Search APIs ===
+            setMethod(BshMethod("findClassList", arrayOf(List::class.java)) {
+                @Suppress("UNCHECKED_CAST")
+                val usingStrings = it[0] as List<String>
+                return@BshMethod runCatching {
+                    dev.ujhhgtg.wekit.utils.reflection.DexKit.findClass {
+                        matcher {
+                            usingEqStrings(usingStrings)
+                        }
+                    }.map { data -> data.getInstance(ClassLoaders.HOST) }
+                }.getOrDefault(emptyList<Any>())
+            })
+            setMethod(BshMethod("findMemberList", arrayOf(List::class.java)) {
+                @Suppress("UNCHECKED_CAST")
+                val usingStrings = it[0] as List<String>
+                return@BshMethod runCatching {
+                    dev.ujhhgtg.wekit.utils.reflection.DexKit.findMethod {
+                        matcher {
+                            usingEqStrings(usingStrings)
+                        }
+                    }.mapNotNull { data ->
+                        val name = data.name
+                        if (name == "<init>" || name == "<clinit>") {
+                            data.getConstructorInstance(ClassLoaders.HOST)
+                        } else {
+                            data.getMethodInstance(ClassLoaders.HOST)
+                        }
+                    }
+                }.getOrDefault(emptyList<Any>())
             })
 
             // ===== Extended WAuxv Methods =====
@@ -900,88 +1094,314 @@ object JavaEngine {
             // delay(ms, runnable)
             setMethod(BshMethod("delay", arrayOf(java.lang.Long.TYPE, Runnable::class.java)) {
                 val ms = it[0] as Long; val action = it[1] as Runnable
-                Thread { try { Thread.sleep(ms); action.run() } catch (_: InterruptedException) {} }.start()
+                thread { try { Thread.sleep(ms); action.run() } catch (_: InterruptedException) {} }
             })
 
             // === HTTP (OkHttp) ===
             setMethod(BshMethod("get", arrayOf(BString, Map::class.java, Consumer::class.java)) {
                 val url = it[0] as String
                 @Suppress("UNCHECKED_CAST")
-                val cb = it[2] as Consumer<String>
-                Thread {
+                val headers = it[1] as? Map<String, String>
+                @Suppress("UNCHECKED_CAST")
+                val cb = it[2] as Consumer<String?>
+                thread {
                     runCatching {
-                        val req = okhttp3.Request.Builder().url(url).build()
+                        val req = okhttp3.Request.Builder().url(url).apply {
+                            headers?.forEach { (k, v) -> addHeader(k, v) }
+                        }.build()
                         val resp = okhttp3.OkHttpClient().newCall(req).execute()
                         cb.accept(resp.body.string())
-                    }
-                }.start()
+                    }.onFailure { cb.accept(null) }
+                }
             })
             setMethod(BshMethod("get", arrayOf(BString, Map::class.java, java.lang.Long.TYPE, Consumer::class.java)) {
                 val url = it[0] as String
                 @Suppress("UNCHECKED_CAST")
-                val cb = it[3] as Consumer<String>
-                Thread {
+                val headers = it[1] as? Map<String, String>
+                val timeout = it[2] as Long
+                @Suppress("UNCHECKED_CAST")
+                val cb = it[3] as Consumer<String?>
+                thread {
                     runCatching {
-                        val req = okhttp3.Request.Builder().url(url).build()
-                        val resp = okhttp3.OkHttpClient.Builder().callTimeout(java.time.Duration.ofMillis(it[2] as Long)).build().newCall(req).execute()
+                        val req = okhttp3.Request.Builder().url(url).apply {
+                            headers?.forEach { (k, v) -> addHeader(k, v) }
+                        }.build()
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(timeout, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(timeout, java.util.concurrent.TimeUnit.SECONDS)
+                            .build()
+                        val resp = client.newCall(req).execute()
                         cb.accept(resp.body.string())
-                    }
-                }.start()
+                    }.onFailure { cb.accept(null) }
+                }
             })
             setMethod(BshMethod("post", arrayOf(BString, Map::class.java, Map::class.java, Consumer::class.java)) {
                 val url = it[0] as String
                 @Suppress("UNCHECKED_CAST")
-                val cb = it[3] as Consumer<String>
-                Thread {
+                val params = it[1] as? Map<String, String>
+                @Suppress("UNCHECKED_CAST")
+                val headers = it[2] as? Map<String, String>
+                @Suppress("UNCHECKED_CAST")
+                val cb = it[3] as Consumer<String?>
+                thread {
                     runCatching {
                         val form = okhttp3.FormBody.Builder()
-                        @Suppress("UNCHECKED_CAST")
-                        (it[2] as Map<String, String>).forEach { (k, v) -> form.add(k, v) }
-                        val req = okhttp3.Request.Builder().url(url).post(form.build()).build()
+                        params?.forEach { (k, v) -> form.add(k, v) }
+                        val req = okhttp3.Request.Builder().url(url).post(form.build()).apply {
+                            headers?.forEach { (k, v) -> addHeader(k, v) }
+                        }.build()
                         val resp = okhttp3.OkHttpClient().newCall(req).execute()
                         cb.accept(resp.body.string())
-                    }
-                }.start()
+                    }.onFailure { cb.accept(null) }
+                }
+            })
+            setMethod(BshMethod("post", arrayOf(BString, Map::class.java, Map::class.java, java.lang.Long.TYPE, Consumer::class.java)) {
+                val url = it[0] as String
+                @Suppress("UNCHECKED_CAST")
+                val params = it[1] as? Map<String, String>
+                @Suppress("UNCHECKED_CAST")
+                val headers = it[2] as? Map<String, String>
+                val timeout = it[3] as Long
+                @Suppress("UNCHECKED_CAST")
+                val cb = it[4] as Consumer<String?>
+                thread {
+                    runCatching {
+                        val form = okhttp3.FormBody.Builder()
+                        params?.forEach { (k, v) -> form.add(k, v) }
+                        val req = okhttp3.Request.Builder().url(url).post(form.build()).apply {
+                            headers?.forEach { (k, v) -> addHeader(k, v) }
+                        }.build()
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(timeout, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(timeout, java.util.concurrent.TimeUnit.SECONDS)
+                            .build()
+                        val resp = client.newCall(req).execute()
+                        cb.accept(resp.body.string())
+                    }.onFailure { cb.accept(null) }
+                }
             })
             setMethod(BshMethod("download", arrayOf(BString, BString, Map::class.java, Consumer::class.java)) {
                 val url = it[0] as String; val path = it[1] as String
                 @Suppress("UNCHECKED_CAST")
-                val cb = it[3] as Consumer<String>
-                Thread {
+                val headers = it[2] as? Map<String, String>
+                @Suppress("UNCHECKED_CAST")
+                val cb = it[3] as Consumer<File?>
+                thread {
                     runCatching {
-                        val req = okhttp3.Request.Builder().url(url).build()
+                        val req = okhttp3.Request.Builder().url(url).apply {
+                            headers?.forEach { (k, v) -> addHeader(k, v) }
+                        }.build()
                         val resp = okhttp3.OkHttpClient().newCall(req).execute()
-                        java.nio.file.Files.copy(resp.body.byteStream(), java.nio.file.Paths.get(path), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                        cb.accept(path)
-                    }
-                }.start()
+                        val file = File(path)
+                        Files.copy(resp.body.byteStream(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                        cb.accept(file)
+                    }.onFailure { cb.accept(null) }
+                }
             })
             setMethod(BshMethod("download", arrayOf(BString, BString, Map::class.java, java.lang.Long.TYPE, Consumer::class.java)) {
                 val url = it[0] as String; val path = it[1] as String
                 @Suppress("UNCHECKED_CAST")
-                val cb = it[4] as Consumer<String>
-                Thread {
+                val headers = it[2] as? Map<String, String>
+                val timeout = it[3] as Long
+                @Suppress("UNCHECKED_CAST")
+                val cb = it[4] as Consumer<File?>
+                thread {
                     runCatching {
-                        val req = okhttp3.Request.Builder().url(url).build()
-                        val resp = okhttp3.OkHttpClient.Builder().callTimeout(java.time.Duration.ofMillis(it[3] as Long)).build().newCall(req).execute()
-                        java.nio.file.Files.copy(resp.body.byteStream(), java.nio.file.Paths.get(path), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                        cb.accept(path)
-                    }
-                }.start()
+                        val req = okhttp3.Request.Builder().url(url).apply {
+                            headers?.forEach { (k, v) -> addHeader(k, v) }
+                        }.build()
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(timeout, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(timeout, java.util.concurrent.TimeUnit.SECONDS)
+                            .build()
+                        val resp = client.newCall(req).execute()
+                        val file = File(path)
+                        Files.copy(resp.body.byteStream(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                        cb.accept(file)
+                    }.onFailure { cb.accept(null) }
+                }
             })
 
             // === Reflection Helpers ===
             setMethod(BshMethod("firstMethod", arrayOf(Any::class.java, BString)) {
-                return@BshMethod runCatching { (it[0] as Any).javaClass.methods.find { m -> m.name == it[1] as String } }.getOrNull()
+                val clazz = if (it[0] is Class<*>) it[0] as Class<*> else it[0].javaClass
+                return@BshMethod runCatching { clazz.methods.find { m -> m.name == it[1] as String } }.getOrNull()
             })
             setMethod(BshMethod("firstMethod", arrayOf(Any::class.java, BString, int)) {
-                return@BshMethod runCatching { (it[0] as Any).javaClass.methods.find { m -> m.name == it[1] as String && m.parameterCount == it[2] as Int } }.getOrNull()
+                val clazz = if (it[0] is Class<*>) it[0] as Class<*> else it[0].javaClass
+                return@BshMethod runCatching { clazz.methods.find { m -> m.name == it[1] as String && m.parameterCount == it[2] as Int } }.getOrNull()
             })
             setMethod(BshMethod("firstConstructor", arrayOf(Any::class.java, int)) {
-                return@BshMethod runCatching { (it[0] as Any).javaClass.constructors.find { c -> c.parameterCount == it[1] as Int } }.getOrNull()
+                val clazz = if (it[0] is Class<*>) it[0] as Class<*> else it[0].javaClass
+                return@BshMethod runCatching { clazz.constructors.find { c -> c.parameterCount == it[1] as Int } }.getOrNull()
             })
             setMethod(BshMethod("firstField", arrayOf(Any::class.java, BString)) {
-                return@BshMethod runCatching { (it[0] as Any).javaClass.getDeclaredField(it[1] as String).apply { isAccessible = true } }.getOrNull()
+                val clazz = if (it[0] is Class<*>) it[0] as Class<*> else it[0].javaClass
+                return@BshMethod runCatching { clazz.getDeclaredField(it[1] as String).apply { isAccessible = true } }.getOrNull()
+            })
+
+            // === Reflection Accessors ===
+            setMethod(BshMethod("getField", arrayOf(Any::class.java, BString)) {
+                val obj = it[0]
+                val fieldName = it[1] as String
+                return@BshMethod if (obj is Class<*>) {
+                    obj.reflekt().getField(fieldName)
+                } else {
+                    obj.reflekt().getField(fieldName)
+                }
+            })
+            setMethod(BshMethod("getField", arrayOf(Any::class.java, BString, bool)) {
+                val obj = it[0]
+                val fieldName = it[1] as String
+                val superclass = it[2] as Boolean
+                return@BshMethod if (obj is Class<*>) {
+                    obj.reflekt().getField(fieldName, superclass)
+                } else {
+                    obj.reflekt().getField(fieldName, superclass)
+                }
+            })
+            setMethod(BshMethod("setField", arrayOf(Any::class.java, BString, Any::class.java)) {
+                val obj = it[0]
+                val fieldName = it[1] as String
+                val value = it[2]
+                if (obj is Class<*>) {
+                    obj.reflekt().setField(fieldName, value)
+                } else {
+                    obj.reflekt().setField(fieldName, value)
+                }
+                return@BshMethod null
+            })
+
+            // === Reflection Execution ===
+            setMethod(BshMethod("invokeMethod", arrayOf(Any::class.java, BString)) {
+                val instance = it[0]
+                val methodName = it[1] as String
+                val clazz = instance as? Class<*> ?: instance.javaClass
+                val method = clazz.reflekt().firstMethod { name = methodName; parameterCount = 0 }.self
+                method.isAccessible = true
+                val target = if (instance is Class<*>) null else instance
+                return@BshMethod method.invoke(target)
+            })
+            setMethod(BshMethod("invokeMethod", arrayOf(Any::class.java, BString, Array::class.java)) {
+                val instance = it[0]
+                val methodName = it[1] as String
+                val params = it[2] as Array<*>
+                val clazz = instance as? Class<*> ?: instance.javaClass
+                val method = clazz.reflekt().firstMethod { name = methodName; parameterCount = params.size }.self
+                method.isAccessible = true
+                val target = if (instance is Class<*>) null else instance
+                return@BshMethod method.invoke(target, *params)
+            })
+            setMethod(BshMethod("invokeMethod", arrayOf(Any::class.java, BString, int)) {
+                val instance = it[0]
+                val methodName = it[1] as String
+                val paramCount = it[2] as Int
+                val clazz = instance as? Class<*> ?: instance.javaClass
+                val method = clazz.reflekt().firstMethod { name = methodName; parameterCount = paramCount }.self
+                method.isAccessible = true
+                val target = if (instance is Class<*>) null else instance
+                return@BshMethod method.invoke(target)
+            })
+            setMethod(BshMethod("invokeMethod", arrayOf(Any::class.java, BString, int, Array::class.java)) {
+                val instance = it[0]
+                val methodName = it[1] as String
+                val paramCount = it[2] as Int
+                val params = it[3] as Array<*>
+                val clazz = instance as? Class<*> ?: instance.javaClass
+                val method = clazz.reflekt().firstMethod { name = methodName; parameterCount = paramCount }.self
+                method.isAccessible = true
+                val target = if (instance is Class<*>) null else instance
+                return@BshMethod method.invoke(target, *params)
+            })
+
+            setMethod(BshMethod("createInstance", arrayOf(Any::class.java, int)) {
+                val instance = it[0]
+                val paramCount = it[1] as Int
+                val clazz = instance as? Class<*> ?: instance.javaClass
+                val ctor = clazz.reflekt().firstConstructor { parameterCount = paramCount }.self
+                ctor.isAccessible = true
+                return@BshMethod ctor.newInstance()
+            })
+            setMethod(BshMethod("createInstance", arrayOf(Any::class.java, int, Array::class.java)) {
+                val instance = it[0]
+                val paramCount = it[1] as Int
+                val params = it[2] as Array<*>
+                val clazz = instance as? Class<*> ?: instance.javaClass
+                val ctor = clazz.reflekt().firstConstructor { parameterCount = paramCount }.self
+                ctor.isAccessible = true
+                return@BshMethod ctor.newInstance(*params)
+            })
+
+            // === Payments ===
+            setMethod(BshMethod("confirmTransfer", arrayOf(BString, BString, BString, Integer.TYPE)) {
+                return@BshMethod WePaymentApi.confirmTransfer(it[0] as String, it[1] as String, it[2] as String, it[3] as Int)
+            })
+            setMethod(BshMethod("refuseTransfer", arrayOf(BString, BString, BString)) {
+                return@BshMethod WePaymentApi.refuseTransfer(it[0] as String, it[1] as String, it[2] as String, 0)
+            })
+
+            // === JSLogin ===
+            setMethod(BshMethod("jsLogin", arrayOf(BString, Consumer::class.java)) {
+                @Suppress("UNCHECKED_CAST")
+                WeAuthApi.jsLogin(it[0] as String, it[1] as Consumer<String?>)
+                return@BshMethod null
+            })
+
+            // === SNS Moments ===
+            setMethod(BshMethod("uploadText", arrayOf(BString)) {
+                return@BshMethod WeMomentsApi.uploadText(it[0] as String)
+            })
+            setMethod(BshMethod("uploadText", arrayOf(BString, BString, BString)) {
+                return@BshMethod WeMomentsApi.uploadText(it[0] as String, it[1] as String, it[2] as String)
+            })
+            setMethod(BshMethod("uploadText", arrayOf(org.json.JSONObject::class.java)) {
+                val jo = it[0] as org.json.JSONObject
+                @Suppress("TYPE_MISMATCH_BASED_ON_JAVA_ANNOTATIONS")
+                return@BshMethod WeMomentsApi.uploadText(
+                    jo.optString("content", ""),
+                    jo.optString("sdkId", null),
+                    jo.optString("sdkAppName", null)
+                )
+            })
+            setMethod(BshMethod("uploadTextAndPicList", arrayOf(BString, BString)) {
+                return@BshMethod WeMomentsApi.uploadTextAndPicList(it[0] as String, listOf(it[1] as String))
+            })
+            setMethod(BshMethod("uploadTextAndPicList", arrayOf(BString, BString, BString, BString)) {
+                return@BshMethod WeMomentsApi.uploadTextAndPicList(it[0] as String, listOf(it[1] as String), it[2] as String, it[3] as String)
+            })
+            setMethod(BshMethod("uploadTextAndPicList", arrayOf(BString, List::class.java)) {
+                @Suppress("UNCHECKED_CAST")
+                return@BshMethod WeMomentsApi.uploadTextAndPicList(it[0] as String, it[1] as List<String>)
+            })
+            setMethod(BshMethod("uploadTextAndPicList", arrayOf(BString, List::class.java, BString, BString)) {
+                @Suppress("UNCHECKED_CAST")
+                return@BshMethod WeMomentsApi.uploadTextAndPicList(it[0] as String, it[1] as List<String>, it[2] as String, it[3] as String)
+            })
+            setMethod(BshMethod("uploadTextAndPicList", arrayOf(org.json.JSONObject::class.java)) {
+                val jo = it[0] as org.json.JSONObject
+                val picList = ArrayList<String>()
+                val ja = jo.optJSONArray("picPathList")
+                if (ja != null) {
+                    for (i in 0 until ja.length()) {
+                        picList.add(ja.optString(i))
+                    }
+                }
+                @Suppress("TYPE_MISMATCH_BASED_ON_JAVA_ANNOTATIONS")
+                return@BshMethod WeMomentsApi.uploadTextAndPicList(
+                    jo.optString("content", ""),
+                    picList,
+                    jo.optString("sdkId", null),
+                    jo.optString("sdkAppName", null)
+                )
+            })
+
+            // === Network Queue and XML Messages ===
+            setMethod(BshMethod("addToQueue", arrayOf(Any::class.java)) {
+                WeNetSceneApi.sendNetScene(it[0])
+                return@BshMethod null
+            })
+            setMethod(BshMethod("sendXmlMsg", arrayOf(BString, BString)) {
+                return@BshMethod WeMessageApi.sendXmlAppMsg(it[0] as String, it[1] as String)
             })
 
             // === Messaging variants ===
@@ -998,16 +1418,44 @@ object JavaEngine {
                 return@BshMethod WeMessageApi.sendLocation(it[0] as String, jo.optString("poiName",""), jo.optString("label",""), jo.optString("x","0"), jo.optString("y","0"), jo.optString("scale","0"))
             })
             setMethod(BshMethod("sendMediaMsg", arrayOf(BString, Any::class.java, BString)) {
-                return@BshMethod WeMessageApi.sendText(it[0] as String, "[media]")
+                val toUser = it[0] as String
+                val mediaMsg = it[1]
+                val appId = it[2] as String
+                return@BshMethod try {
+                    WeMessageApi.methodSendAppMsg.method.invoke(null, mediaMsg, appId, "", toUser, 3, null)
+                    true
+                } catch (e: Exception) {
+                    WeLogger.e(TAG, "sendMediaMsg failed", e)
+                    false
+                }
             })
             setMethod(BshMethod("sendCipherMsg", arrayOf(BString, BString, BString)) {
-                return@BshMethod WeMessageApi.sendText(it[0] as String, it[1] as String)
+                val toUser = it[0] as String
+                val title = it[1] as String
+                val content = it[2] as String
+                val encodedContent = android.text.Html.escapeHtml(content)
+                val xml = """<msg><appmsg type="1"><title>$title</title><des>$title</des><content>|WA|$encodedContent</content></appmsg></msg>"""
+                return@BshMethod runCatching {
+                    WeMessageApi.sendXmlAppMsg(toUser, xml)
+                }.getOrDefault(false)
             })
             setMethod(BshMethod("sendNoteMsg", arrayOf(BString, BString)) {
-                return@BshMethod WeMessageApi.sendText(it[0] as String, it[1] as String)
+                val toUser = it[0] as String
+                val noteXml = it[1] as String
+                val xml = """<msg><appmsg type="53"><title>$noteXml</title><extinfo><solitaire_info></solitaire_info></extinfo></appmsg></msg>"""
+                return@BshMethod runCatching {
+                    WeMessageApi.sendXmlAppMsg(toUser, xml)
+                }.getOrDefault(false)
             })
             setMethod(BshMethod("sendAppBrandMsg", arrayOf(BString, BString, BString, BString)) {
-                return@BshMethod WeMessageApi.sendText(it[0] as String, it[2] as String)
+                val toUser = it[0] as String
+                val title = it[1] as String
+                val pagePath = it[2] as String
+                val username = it[3] as String
+                val xml = """<msg><appmsg type="33"><title>$title</title><weappinfo><item><pagepath><![CDATA[$pagePath]]></pagepath><username>$username</username></item></weappinfo></appmsg></msg>"""
+                return@BshMethod runCatching {
+                    WeMessageApi.sendXmlAppMsg(toUser, xml)
+                }.getOrDefault(false)
             })
             setMethod(BshMethod("modifyContactLabelList", arrayOf(BString, BString)) {
                 WeContactLabelApi.modifyLabel(it[0] as String, listOf(it[1] as String))
@@ -1016,34 +1464,32 @@ object JavaEngine {
                 @Suppress("UNCHECKED_CAST")
                 WeContactLabelApi.modifyLabel(it[0] as String, it[1] as List<String>)
             })
-            setMethod(BshMethod("downloadImg", arrayOf(BString, BString, BString, BString)) {
-                val talker = it[0] as String; val content = it[1] as String
-                val savePath = it[3] as String
+            setMethod(BshMethod("downloadImg", arrayOf(BString, BString, BString, BString)) { args ->
+//                val talker = it[0] as String
+                val content = args[1] as String
+                val savePath = args[3] as String
                 thread {
                     runCatching {
                         val url = content.replaceFirst("\\[AtWx=([^]]+)]".toRegex(), "$1")
                         val resp = okhttp3.OkHttpClient().newCall(okhttp3.Request.Builder().url(url).build()).execute()
-                        java.nio.file.Files.copy(resp.body.byteStream(), java.nio.file.Paths.get(savePath), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                        Files.copy(resp.body.byteStream(), java.nio.file.Paths.get(savePath), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
                     }.onFailure { WeLogger.e(TAG, "downloadImg failed", it) }
                 }
             })
-            setMethod(BshMethod("evalSnapshot", arrayOf(java.io.InputStream::class.java)) {
+            setMethod(BshMethod("evalSnapshot", arrayOf(InputStream::class.java)) { args ->
                 runCatching {
-                    val bytes = (it[0] as java.io.InputStream).readBytes()
-                    val path = java.nio.file.Files.createTempFile("snap", ".bshs").toString()
-                    java.nio.file.Files.write(java.nio.file.Paths.get(path), bytes)
-                    plugin.interpreter.evalSnapshot(path, null)
+                    plugin.interpreter.evalSnapshot(args[0] as InputStream, null)
                 }.onFailure { WeLogger.e(TAG, "evalSnapshot failed", it) }
             })
             setMethod(BshMethod("uploadDeviceStep", arrayOf(java.lang.Long.TYPE)) { args ->
                 val stepCount = args[0] as Long
                 runCatching {
-                    val devStepMgrClazz = ClassLoaders.HOST.loadClass("com.tencent.mm.plugin.sport.model.DeviceStepManager")
+                    val devStepMgrClazz = "com.tencent.mm.plugin.sport.model.DeviceStepManager".toClass()
                     val uploadMethod = devStepMgrClazz.reflekt()
                         .firstMethod { parameters(Long::class.java, Long::class.java) }
                         .self
                     val getInstance = devStepMgrClazz.reflekt()
-                        .firstMethod { modifiers { it.contains(Modifiers.STATIC) }; parameters() }
+                        .firstMethod { modifiers(Modifiers.STATIC); parameters() }
                         .self
                     uploadMethod.invoke(getInstance.invoke(null), System.currentTimeMillis() / 1000, stepCount)
                 }.onFailure { WeLogger.e(TAG, "uploadDeviceStep failed", it) }

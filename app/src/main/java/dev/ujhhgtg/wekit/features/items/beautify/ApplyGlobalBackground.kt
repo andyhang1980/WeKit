@@ -242,7 +242,7 @@ object ApplyGlobalBackground : ClickableFeature(), IResolveDex {
 
         "com.tencent.mm.plugin.multitask.ui.bg.DynamicBgContainer".toClass().reflekt()
             .firstMethod {
-                modifiers { it.contains(Modifiers.SYNCHRONIZED) }
+                modifiers(Modifiers.SYNCHRONIZED)
                 parameterCount = 0
             }.hookBefore {
                 result = null

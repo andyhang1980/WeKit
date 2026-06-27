@@ -1,72 +1,70 @@
 package dev.ujhhgtg.wekit.features.items.scripting_java
 
 import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
+import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.wekit.features.core.ApiFeature
 import dev.ujhhgtg.wekit.features.core.Feature
+import dev.ujhhgtg.wekit.utils.WeLogger
+import dev.ujhhgtg.wekit.utils.hookAfterDirectly
+import dev.ujhhgtg.wekit.utils.hookBeforeDirectly
+import me.hd.wauxv.hook.HookHandle
+import java.lang.reflect.Executable
 import java.lang.reflect.Member
-import java.util.UUID
 import java.util.function.Consumer
 import java.util.function.Function
 
-/**
- * Hook API accessible from BeanShell scripts, mirroring WAuxv's hookBefore/hookAfter/hookReplace/unhook.
- *
- * WAuxv original: uses XposedBridge.hookMethod(Member, XC_MethodHook) with Consumer<MethodHookParam> callback.
- * WeKit: delegates directly to XposedBridge.hookMethod for identical behavior.
- */
 @Feature(name = "脚本 Hook 服务", categories = ["API"], description = "提供 BeanShell 脚本可用的 Xposed Hook 能力")
 object JavaHookApi : ApiFeature() {
 
-    private val hooks = mutableMapOf<String, XC_MethodHook.Unhook>()
+    private val TAG = This.Class.simpleName
 
-    @Suppress("unused")
-    fun hookBefore(member: Member, consumer: Consumer<XC_MethodHook.MethodHookParam>): String {
-        val unhook = XposedBridge.hookMethod(member, object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                runCatching { consumer.accept(param) }
-            }
-        })
-        val id = UUID.randomUUID().toString()
-        hooks[id] = unhook
-        return id
+    private val hooks = mutableListOf<HookHandle>()
+
+    fun hookBefore(member: Member, consumer: Consumer<XC_MethodHook.MethodHookParam>): HookHandle {
+        val unhook = (member as Executable).hookBeforeDirectly {
+            runCatching {
+                result = consumer.accept(this)
+            }.onFailure { WeLogger.e(TAG, "failed to execute script hookBefore action") }
+        }
+        val handle = HookHandle(unhook)
+        hooks.add(handle)
+        return handle
     }
 
-    @Suppress("unused")
-    fun hookAfter(member: Member, consumer: Consumer<XC_MethodHook.MethodHookParam>): String {
-        val unhook = XposedBridge.hookMethod(member, object : XC_MethodHook() {
-            override fun afterHookedMethod(param: MethodHookParam) {
-                runCatching { consumer.accept(param) }
-            }
-        })
-        val id = UUID.randomUUID().toString()
-        hooks[id] = unhook
-        return id
+    fun hookAfter(member: Member, consumer: Consumer<XC_MethodHook.MethodHookParam>): HookHandle {
+        val unhook = (member as Executable).hookAfterDirectly {
+            runCatching {
+                consumer.accept(this)
+            }.onFailure { WeLogger.e(TAG, "failed to execute script hookAfter action") }
+        }
+        val handle = HookHandle(unhook)
+        hooks.add(handle)
+        return handle
     }
 
-    @Suppress("unused")
-    fun hookReplace(member: Member, function: Function<XC_MethodHook.MethodHookParam, Any?>): String {
-        val unhook = XposedBridge.hookMethod(member, object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                runCatching { param.result = function.apply(param) }
-            }
-        })
-        val id = UUID.randomUUID().toString()
-        hooks[id] = unhook
-        return id
+    fun hookReplace(member: Member, function: Function<XC_MethodHook.MethodHookParam, Any?>): HookHandle {
+        val unhook = (member as Executable).hookBeforeDirectly {
+            runCatching {
+                result = function.apply(this)
+            }.onFailure { WeLogger.e(TAG, "failed to execute script hookReplace action") }
+        }
+        val handle = HookHandle(unhook)
+        hooks.add(handle)
+        return handle
     }
 
-    @Suppress("unused")
-    fun unhook(id: String) {
-        hooks.remove(id)?.unhook()
+    fun unhook(handle: HookHandle) {
+        if (hooks.remove(handle)) {
+            handle.unhook.unhook()
+        }
     }
 
-    /**
-     * Called when a plugin is unloaded — cleans up any remaining hooks.
-     */
-    fun unhookAll(ids: Collection<String>) {
-        for (id in ids) {
-            hooks.remove(id)?.unhook()
+    fun unhookEverything() {
+        val iterator = hooks.iterator()
+        while (iterator.hasNext()) {
+            val handle = iterator.next()
+            handle.unhook.unhook()
+            iterator.remove()
         }
     }
 }

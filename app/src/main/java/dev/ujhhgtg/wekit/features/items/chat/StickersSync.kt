@@ -320,7 +320,7 @@ object StickersSync : ClickableFeature(), IResolveDex {
     private val emojiInfoStorage by lazy {
         val emojiStorageMgr = classEmojiStorageMgr.reflekt()
             .firstMethod {
-                modifiers { it.contains(Modifiers.STATIC) }
+                modifiers(Modifiers.STATIC)
                 returnType = classEmojiStorageMgr.clazz
             }
             .invokeStatic()!!
@@ -381,7 +381,7 @@ object StickersSync : ClickableFeature(), IResolveDex {
             val packConfig = manager.reflekt()
                 .firstMethod {
                     superclass()
-                    modifiers { it.contains(Modifiers.FINAL) }
+                    modifiers(Modifiers.FINAL)
                     returnType {
                         it != Boolean::class.java
                     }

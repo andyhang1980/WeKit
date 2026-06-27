@@ -48,6 +48,7 @@ data class WeOfficialAccount(
 // 消息模型
 data class WeMessage(
     val msgId: Long,
+    val msgSvrId: Long,
     val talker: String,
     val content: String,
     val typeCode: Int,

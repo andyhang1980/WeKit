@@ -41,7 +41,7 @@ object AutoSpeechToText : SwitchFeature(),
         val chattingContext = WeChatMessageViewApi.getChattingContextFromParam(param)
         val apiMan = chattingContext.reflekt()
             .firstField {
-                type = WeServiceApi.classApiManager
+                type = WeServiceApi.apiManagerClass
             }
             .get()!!
         val api = WeServiceApi.getApiByClass(apiMan, WeMessageApi.classTransformChattingComponent.clazz)
