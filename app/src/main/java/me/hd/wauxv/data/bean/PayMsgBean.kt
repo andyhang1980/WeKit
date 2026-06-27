@@ -1,5 +1,8 @@
 package me.hd.wauxv.data.bean
 
+import androidx.annotation.Keep
+
+@Keep
 class PayMsgBean(g2: Any) {
     val origin: Any = g2
     val username: String

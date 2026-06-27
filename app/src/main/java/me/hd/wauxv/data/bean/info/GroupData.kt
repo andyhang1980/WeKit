@@ -1,7 +1,9 @@
 package me.hd.wauxv.data.bean.info
 
+import androidx.annotation.Keep
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
 
+@Keep
 data class GroupData(
     var roomId: String = "",
     var memberIds: List<String> = emptyList(),
@@ -32,7 +34,7 @@ data class GroupData(
             this.memberNames = members.map { it.nickname }
             this.memberCount = members.size
             this.membersHash = members.associate { it.wxId to it.displayName }
-            
+
             try {
                 val db = WeDatabaseApi.db
                 val cursor = db.rawQuery(
