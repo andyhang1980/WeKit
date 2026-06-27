@@ -1,8 +1,16 @@
 package dev.ujhhgtg.wekit.hooks.items.chat
 
 import android.app.Activity
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.os.Handler
+import android.os.Looper
 import android.view.ContextThemeWrapper
 import android.view.View
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,8 +18,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,32 +34,39 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.tencent.mm.api.IEmojiInfo
+import com.tencent.mm.pluginsdk.ui.chat.ChatFooter
 import de.robv.android.xposed.XC_MethodHook
 import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.reflekt.utils.Modifiers
 import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
+import dev.ujhhgtg.wekit.hooks.core.ClickableHookItem
 import dev.ujhhgtg.wekit.hooks.core.HookItem
-import dev.ujhhgtg.wekit.hooks.core.SwitchHookItem
+import dev.ujhhgtg.wekit.preferences.WePrefs.Companion.prefOption
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
 import dev.ujhhgtg.wekit.ui.content.DefaultColumn
 import dev.ujhhgtg.wekit.ui.content.TextButton
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
+import dev.ujhhgtg.wekit.utils.HostInfo
 import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.android.showToast
 import dev.ujhhgtg.wekit.utils.invokeOriginal
 import dev.ujhhgtg.wekit.utils.reflection.int
-import org.luckypray.dexkit.DexKitBridge
 import org.luckypray.dexkit.query.enums.MatchType
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 @HookItem(name = "表情游戏控制", categories = ["聊天"], description = "自定义猜拳和骰子的结果")
-object EmojiGameControl : SwitchHookItem(), IResolveDex {
+object EmojiGameControl : ClickableHookItem(), IResolveDex {
 
     private const val MD5_MORRA = "9bd1281af3a31710a45b84d736363691"
     private const val MD5_DICE = "08f223fa83f1ca34e143d1e580252c7c"
+    private const val GRAVITY_EARTH = 9.81f
+    private const val MOTION_THRESHOLD = 2.0f
     private val TAG = This.Class.simpleName
 
     private val methodRandom by dexMethod {
@@ -73,13 +90,105 @@ object EmojiGameControl : SwitchHookItem(), IResolveDex {
     private var valMorra = 0
     private var valDice = 0
 
-    private enum class MorraType(val index: Int, val chineseName: String) {
-        SCISSORS(0, "剪刀"), STONE(1, "石头"), PAPER(2, "布")
+    private var stealthMode by prefOption("emoji_game_stealth", false)
+
+    private enum class MorraType(val chineseName: String) {
+        SCISSORS("剪刀"), STONE("石头"), PAPER("布")
     }
 
-    private enum class DiceFace(val index: Int, val chineseName: String) {
-        ONE(0, "1"), TWO(1, "2"), THREE(2, "3"),
-        FOUR(3, "4"), FIVE(4, "5"), SIX(5, "6")
+    private enum class DiceFace(val chineseName: String) {
+        ONE("1"), TWO("2"), THREE("3"),
+        FOUR("4"), FIVE("5"), SIX("6")
+    }
+
+    // --- Sensor infrastructure ---
+
+    private val latestAccel = FloatArray(3)
+    private var sensorManager: SensorManager? = null
+    private var keepAliveTask: Runnable? = null
+    private var keepAliveHandler: Handler? = null
+
+    private val accelListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+                System.arraycopy(event.values, 0, latestAccel, 0, 3)
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
+    private fun ensureSensorAlive(delayMs: Long) {
+        if (sensorManager == null) {
+            sensorManager = HostInfo.application
+                .getSystemService(Context.SENSOR_SERVICE) as SensorManager
+            val accel = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            if (accel != null) {
+                sensorManager?.registerListener(accelListener, accel, SensorManager.SENSOR_DELAY_NORMAL)
+            } else {
+                WeLogger.w(TAG, "accelerometer not available")
+            }
+        }
+        // Reset keep-alive: cancel pending stop, schedule a new one
+        keepAliveTask?.let { keepAliveHandler?.removeCallbacks(it) }
+        keepAliveTask = Runnable {
+            sensorManager?.unregisterListener(accelListener)
+            sensorManager = null
+        }
+        keepAliveHandler = keepAliveHandler ?: Handler(Looper.getMainLooper())
+        keepAliveHandler?.postDelayed(keepAliveTask!!, delayMs)
+    }
+
+    private fun computePitchRoll(ax: Float, ay: Float, az: Float): Pair<Float, Float> {
+        val pitch = Math.toDegrees(atan2(-ay.toDouble(), az.toDouble())).toFloat()
+        val roll = Math.toDegrees(atan2(ax.toDouble(), az.toDouble())).toFloat()
+        return Pair(pitch, roll)
+    }
+
+    private fun isInMotion(ax: Float, ay: Float, az: Float): Boolean {
+        val magnitude = sqrt((ax * ax + ay * ay + az * az).toDouble()).toFloat()
+        return abs(magnitude - GRAVITY_EARTH) > MOTION_THRESHOLD
+    }
+
+    private fun mapToValue(ax: Float, ay: Float, az: Float, isDice: Boolean): Int {
+        // No sensor data yet — fall back to random
+        if (ax == 0f && ay == 0f && az == 0f) {
+            WeLogger.w(TAG, "no sensor data, using random")
+            showToast("暂无传感器数据, 正使用随机数!")
+            return Random.nextInt(if (isDice) 6 else 3)
+        }
+
+        // Accelerating significantly — motion fallback
+        if (isInMotion(ax, ay, az)) {
+            WeLogger.w(TAG, "accelerating signaficantly")
+            showToast("加速度过高, 正使用随机数!")
+            return Random.nextInt(if (isDice) 6 else 3)
+        }
+
+        val (pitch, roll) = computePitchRoll(ax, ay, az)
+
+        return if (isDice) {
+            // device nearly vertical (gravity off z-axis)
+            if (abs(az) < 5.0f) {
+                5  // vertical → 6
+            } else if (pitch < -30f) {
+                3  // forward → 4
+            } else if (pitch > 30f) {
+                4  // backward → 5
+            } else {
+                when {
+                    roll < -25f -> 2  // left → 1
+                    roll <= 25f -> 1  // center → 2
+                    else -> 0         // right → 3
+                }
+            }
+        } else {
+            when {
+                roll < -25f -> 2   // left → STONE
+                roll <= 25f -> 0   // center → SCISSORS
+                else -> 1          // right → PAPER
+            }
+        }
     }
 
     override fun onEnable() {
@@ -92,6 +201,17 @@ object EmojiGameControl : SwitchHookItem(), IResolveDex {
                 else -> result
             }
         }
+
+        // Start accelerometer when entering a conversation (first time: 20s)
+        ChatFooter::class.reflekt()
+            .firstMethod {
+                name = "setUserName"
+            }.hookAfter {
+                val conv = args[0] as? String
+                if (!conv.isNullOrEmpty()) {
+                    ensureSensorAlive(20000L)
+                }
+            }
 
         methodPanelClick.hookBefore {
             val obj = args[3] ?: return@hookBefore
@@ -109,14 +229,61 @@ object EmojiGameControl : SwitchHookItem(), IResolveDex {
 
             if (emojiInfo != null) {
                 val emojiMd5 = emojiInfo.md5
+                val isDice = emojiMd5 == MD5_DICE
+                val isMorra = emojiMd5 == MD5_MORRA
+
+                if (!isDice && !isMorra) return@hookBefore
 
                 val activity = ((args[0] as View).context as ContextThemeWrapper).baseContext as Activity
 
-                when (emojiMd5) {
-                    MD5_MORRA -> showSelectDialog(this, false, activity)
-                    MD5_DICE -> showSelectDialog(this, true, activity)
+                if (stealthMode) {
+                    this.result = null
+                    ensureSensorAlive(10000L)
+
+                    val (ax, ay, az) = latestAccel.let { Triple(it[0], it[1], it[2]) }
+                    val value = mapToValue(ax, ay, az, isDice)
+                    if (isDice) valDice = value else valMorra = value
+
+                    val name = if (isDice) DiceFace.entries[value].chineseName
+                    else MorraType.entries[value].chineseName
+                    showToast(activity, "${if (isDice) "骰子" else "猜拳"}: $name")
+
+                    invokeOriginal()
+                } else {
+                    showSelectDialog(this, isDice, activity)
                 }
             }
+        }
+    }
+
+    override fun onDisable() {
+        keepAliveTask?.let { keepAliveHandler?.removeCallbacks(it) }
+        keepAliveHandler?.removeCallbacksAndMessages(null)
+        sensorManager?.unregisterListener(accelListener)
+        sensorManager = null
+        keepAliveTask = null
+        keepAliveHandler = null
+    }
+
+    override fun onClick(context: Context) {
+        showComposeDialog(context) {
+            AlertDialogContent(
+                title = { Text("表情游戏控制") },
+                text = {
+                    var stealthInput by remember { mutableStateOf(stealthMode) }
+
+                    ListItem(
+                        headlineContent = { Text("隐蔽模式") },
+                        supportingContent = { Text("根据设备陀螺仪状态选择发送内容") },
+                        trailingContent = {
+                            Switch(checked = stealthInput, onCheckedChange = null)
+                        },
+                        modifier = Modifier.clickable {
+                            stealthInput = !stealthInput
+                            stealthMode = stealthInput
+                        }
+                    )
+                })
         }
     }
 
@@ -258,7 +425,7 @@ object EmojiGameControl : SwitchHookItem(), IResolveDex {
                 }) { Text("随机") }
             },
             confirmButton = {
-                // In single mode the option buttons send directly; only show confirm in multi mode
+                // In single mode the option buttons send directly; only show confirm in multimode
                 if (!isSingleMode) {
                     Button(onClick = {
                         onSend(false, inputText)
