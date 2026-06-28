@@ -3,6 +3,7 @@
 package dev.ujhhgtg.wekit.utils.fs
 
 import android.net.Uri
+import java.io.File
 import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
@@ -14,5 +15,7 @@ inline fun Path.createDirectoriesNoThrow(): Path {
 }
 
 inline val String.asPath get() = Path(this)
+
+inline val File.asPath get() = toPath()
 
 inline val Path.asAndroidUri get() = Uri.fromFile(toFile())

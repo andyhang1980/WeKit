@@ -14,13 +14,16 @@ import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.android.Intent
 import dev.ujhhgtg.wekit.utils.android.showToast
 import dev.ujhhgtg.wekit.utils.android.showToastSuspend
+import dev.ujhhgtg.wekit.utils.fs.asPath
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.io.File
 import java.util.LinkedList
+import kotlin.io.path.absolutePathString
+import kotlin.io.path.copyTo
+import kotlin.io.path.div
 
-@Feature(name = "转发 & 一键转发", categories = ["朋友圈"], description = "转发他人的朋友圈")
+@Feature(name = "转发 & 一键转发", categories = ["朋友圈"], description = "转发他人的朋友圈\n如果图片/视频转发后是空白, 请点击查看/播放后重试")
 object ReMoment : SwitchFeature(), WeMomentsContextMenuApi.IMenuItemsProvider {
 
     private val TAG = This.Class.simpleName
@@ -179,8 +182,8 @@ object ReMoment : SwitchFeature(), WeMomentsContextMenuApi.IMenuItemsProvider {
                     return
                 }
 
-                val tempVideo = File(activity.externalCacheDir, "wekit_repost_${System.currentTimeMillis()}.mp4")
-                val tempPath = tempVideo.absolutePath
+                val tempVideo = activity.externalCacheDir!!.asPath / "wekit_repost_${System.currentTimeMillis()}.mp4"
+                val tempPath = tempVideo.absolutePathString()
 
                 if (copyVfsFile(videoPath, tempPath)) {
                     activity.startActivity(Intent {
@@ -231,17 +234,23 @@ object ReMoment : SwitchFeature(), WeMomentsContextMenuApi.IMenuItemsProvider {
                     }
                     15, 5 -> { // 视频
                         val videoPath = fetchVideoPath(data.nativeMediaList)
-                        if (videoPath == null) {
-                            showToastSuspend(activity, "未找到本地缓存的视频, 请播放一次后再转发!")
+                        val thumbPath = WeMomentsApi.methodGetSnsVideoThumbImagePath.method.invoke(null, data.nativeMediaList[0]) as String?
+
+                        if (videoPath == null || thumbPath == null) {
+                            showToastSuspend(activity, "未找到本地缓存的视频或视频缩略图, 请播放一次后再转发!")
                             false
                         } else {
-                            val tempVideo = File(activity.externalCacheDir, "wekit_repost_bg_${System.currentTimeMillis()}.mp4")
-                            val tempPath = tempVideo.absolutePath
+                            val tempVideo = activity.externalCacheDir!!.asPath / "wekit_repost_bg_${System.currentTimeMillis()}.mp4"
+                            val tempVideoPath = tempVideo.absolutePathString()
 
-                            if (copyVfsFile(videoPath, tempPath)) {
+                            val tempThumb = activity.externalCacheDir!!.asPath / "wekit_repost_bg_${System.currentTimeMillis()}.png"
+                            val tempThumbPath = tempThumb.absolutePathString()
+                            thumbPath.asPath.copyTo(tempThumb)
+
+                            if (copyVfsFile(videoPath, tempVideoPath)) {
                                 val helper = WeMomentsApi.ctorUploadPackHelper.constructor.newInstance(15, null)
                                 WeMomentsApi.methodSetContentDes.method.invoke(helper, contentText)
-                                WeMomentsApi.methodAddSightObjectByPath.method.invoke(helper, tempPath, tempPath, "", "")
+                                WeMomentsApi.methodAddSightObjectByPath.method.invoke(helper, tempVideoPath, tempThumbPath, "", "")
                                 val localId = WeMomentsApi.methodCommit.method.invoke(helper) as Int
                                 localId > 0
                             } else {

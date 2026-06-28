@@ -2,6 +2,8 @@ package dev.ujhhgtg.wekit.features.items.scripting_java
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.os.Handler
+import android.os.Looper
 import bsh.BshMethod
 import bsh.NameSpace
 import de.robv.android.xposed.XC_MethodHook
@@ -443,8 +445,10 @@ object JavaEngine {
             setMethod(BshMethod(
                 "toast", arrayOf(BString)
             ) {
-                val message = it[0] as String
-                showToast("${plugin.name}: $message")
+                Handler(Looper.getMainLooper()).post {
+                    val message = it[0] as String
+                    showToast("${plugin.name}: $message")
+                }
             })
 
             // ===== Notification =====
