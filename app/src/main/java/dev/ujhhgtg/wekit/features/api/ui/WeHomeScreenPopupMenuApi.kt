@@ -150,7 +150,6 @@ object WeHomeScreenPopupMenuApi : ApiFeature(), IResolveDex {
                         val itemWrapper =
                             classMenuItemWrapper.clazz.createInstance(itemData)
                         items.put(items.size, itemWrapper)
-                        baseAdapter.notifyDataSetChanged()
                     }
                 } catch (ex: Exception) {
                     WeLogger.e(
@@ -160,6 +159,7 @@ object WeHomeScreenPopupMenuApi : ApiFeature(), IResolveDex {
                     )
                 }
             }
+
             baseAdapter.notifyDataSetChanged()
         }
 

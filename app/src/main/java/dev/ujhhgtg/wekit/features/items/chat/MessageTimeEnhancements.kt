@@ -2,6 +2,7 @@ package dev.ujhhgtg.wekit.features.items.chat
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Color
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -14,8 +15,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -32,6 +35,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.toColorInt
 import de.robv.android.xposed.XC_MethodHook
 import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.wekit.features.api.core.models.MessageInfo
@@ -44,6 +48,7 @@ import dev.ujhhgtg.wekit.ui.content.Button
 import dev.ujhhgtg.wekit.ui.content.DefaultColumn
 import dev.ujhhgtg.wekit.ui.content.TextButton
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
+import dev.ujhhgtg.wekit.utils.android.isDarkMode
 import dev.ujhhgtg.wekit.utils.android.showToast
 import dev.ujhhgtg.wekit.utils.formatEpoch
 import java.lang.reflect.Field
@@ -67,6 +72,8 @@ object MessageTimeEnhancements : ClickableFeature(),
     private var textSize by prefOption("msg_time_text_size", 10)
     private var displayFormat by prefOption("msg_time_display_format", $$"$time | $type")
     private var isAlwaysCentered by prefOption("msg_time_always_centered", false)
+    private var textColorLight by prefOption("msg_time_color_light", "gray")
+    private var textColorDark by prefOption("msg_time_color_dark", "gray")
 
     private fun getFormattedText(msgInfo: MessageInfo): String {
         var result = displayFormat
@@ -147,12 +154,17 @@ object MessageTimeEnhancements : ClickableFeature(),
             }
             .get() as? TextView? ?: return
 
+        val context = time.context
+
         time.visibility = View.VISIBLE
         time.text = text
-        time.setTextColor(android.graphics.Color.GRAY)
-        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSize.toFloat())
 
-        val context = time.context
+        // Dynamic text color configuration based on system theme
+        val rawColor = if (context.isDarkMode) textColorDark else textColorLight
+        val parsedColor = runCatching { rawColor.toColorInt() }.getOrElse { Color.GRAY }
+        time.setTextColor(parsedColor)
+
+        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSize.toFloat())
 
         // 1. Convert 12dp to pixels dynamically so it matches standard screen-edge spacing
         val edgeMarginPx = TypedValue.applyDimension(
@@ -237,6 +249,8 @@ object MessageTimeEnhancements : ClickableFeature(),
             var patternInput by remember { mutableStateOf(pattern) }
             var textSizeInputRaw by remember { mutableStateOf(textSize.toString()) }
             var isAlwaysCenteredInput by remember { mutableStateOf(isAlwaysCentered) }
+            var textColorLightInput by remember { mutableStateOf(textColorLight) }
+            var textColorDarkInput by remember { mutableStateOf(textColorDark) }
             var isFocused by remember { mutableStateOf(false) }
 
             val insertPlaceholder = { placeholder: String ->
@@ -256,7 +270,7 @@ object MessageTimeEnhancements : ClickableFeature(),
             AlertDialogContent(
                 title = { Text("消息时间增强") },
                 text = {
-                    DefaultColumn {
+                    DefaultColumn(Modifier.verticalScroll(rememberScrollState())) {
                         TextField(
                             value = displayFormatInput,
                             onValueChange = { displayFormatInput = it },
@@ -313,6 +327,20 @@ object MessageTimeEnhancements : ClickableFeature(),
                             modifier = Modifier.fillMaxWidth()
                         )
 
+                        TextField(
+                            value = textColorLightInput,
+                            onValueChange = { textColorLightInput = it },
+                            label = { Text("字体颜色 (亮色模式)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        TextField(
+                            value = textColorDarkInput,
+                            onValueChange = { textColorDarkInput = it },
+                            label = { Text("字体颜色 (暗色模式)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
                         ListItem(
                             headlineContent = { Text("时间居中显示") },
                             supportingContent = { Text("时间是否始终居中, 不根据发送方居左居右") },
@@ -340,6 +368,8 @@ object MessageTimeEnhancements : ClickableFeature(),
                         pattern = patternInput
                         textSize = textSizeInput
                         isAlwaysCentered = isAlwaysCenteredInput // 保存配置
+                        textColorLight = textColorLightInput
+                        textColorDark = textColorDarkInput
                         onDismiss()
                     }) { Text("确定") }
                 },

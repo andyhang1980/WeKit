@@ -21,7 +21,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-@Feature(name = "红包页面详情", categories = ["支付", "红包"], description = "红包领取页面显示更加详细的领取情况")
+@Feature(name = "红包页面详情", categories = ["红包与支付"], description = "红包领取页面显示更加详细的领取情况")
 object DisplayRedPacketDetails : SwitchFeature(), IResolveDex {
 
     private val TAG = This.Class.simpleName
