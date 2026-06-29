@@ -1,8 +1,12 @@
 package dev.ujhhgtg.wekit.features.items.chat
 
 import android.app.Activity
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.SystemClock
 import android.view.MenuItem
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +40,7 @@ import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
+import dev.ujhhgtg.wekit.features.api.core.WeConversationApi
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseListenerApi
 import dev.ujhhgtg.wekit.features.api.ui.WeStartActivityApi
@@ -45,6 +50,7 @@ import dev.ujhhgtg.wekit.features.items.contacts.CustomLocalFriendAvatars
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
 import dev.ujhhgtg.wekit.ui.content.ContactsSelector
+import dev.ujhhgtg.wekit.ui.content.DefaultColumn
 import dev.ujhhgtg.wekit.ui.content.TextButton
 import dev.ujhhgtg.wekit.ui.utils.EditIcon
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
@@ -64,12 +70,26 @@ import java.lang.reflect.Modifier as JavaModifier
 @Feature(name = "对话归拢", categories = ["聊天"], description = "将多个对话归拢在一个文件夹内\n设置对话头像需同时启用「自定义好友本地头像」")
 object AggregateChats : ClickableFeature(),
     WeDatabaseListenerApi.IQueryListener,
+    WeDatabaseListenerApi.IInsertListener,
+    WeDatabaseListenerApi.IUpdateListener,
     WeStartActivityApi.IStartActivityListener,
     IResolveDex {
 
     private val TAG = This.Class.simpleName
     private const val FOLDER_PREFIX = "wekit_folder_"
     private const val FOLDER_CONFIG_MENU_ID = 0x0721C0DE
+
+    // rconversation.flag packing (see WeChat xg3.b.c): high 8 bits = pin / move-up state
+    // owned by WeChat (setPlacedTop / unSetPlacedTop), low 56 bits = conversationTime.
+    private const val FLAG_TIME_MASK = 0x00FFFFFFFFFFFFFFL
+    private const val FLAG_HIGH_MASK = FLAG_TIME_MASK.inv()
+
+    // A conversation is muted when rcontact.type has bit 512 set (WeChat c01.e2.P).
+    private const val CONTACT_TYPE_MUTE_BIT = 512
+    // attrflag bit the conversation box uses to mark "has muted unread" so the homepage
+    // badge renders a small dot instead of a number (WeChat w3.b / s2 require this bit set
+    // alongside unReadMuteCount > 0 when unReadCount == 0).
+    private const val ATTR_FLAG_MUTE_BIT = 2097152
 
     private val foldersFile by lazy { KnownPaths.moduleData / "chat_folders.json" }
 
@@ -104,11 +124,31 @@ object AggregateChats : ClickableFeature(),
 
     private val folderMembersCache = ConcurrentHashMap<String, List<String>>()
 
+    // High 8 bits (pin / move-up) of each folder row, captured before clearStaleFolderMappings
+    // deletes the row, so the pin state can be restored when syncFolder recreates it.
+    private val folderPinFlags = ConcurrentHashMap<String, Long>()
+
     private val suppressQueryRewrite = ThreadLocal.withInitial { false }
+
+    // Reactive refresh: WeChat updates member conversation rows (new message / read state)
+    // through the ContentValues insert/update path, but our materialized folder rows are
+    // written via raw execSQL and never recomputed until MainUI.onResume. We listen for
+    // member-row writes and debounce a lightweight summary recompute so the homepage folder
+    // row tracks its members in real time.
+    private const val REFRESH_DEBOUNCE_MS = 250L
+    private val REFRESH_TASK_TOKEN = Any()
+
+    @Volatile
+    private var refreshThread: HandlerThread? = null
+
+    @Volatile
+    private var refreshHandler: Handler? = null
 
     override fun onEnable() {
         WeDatabaseListenerApi.addListener(this)
         WeStartActivityApi.addListener(this)
+
+        startRefreshThread()
 
         hookMainUiRefresh()
         hookOpenFolder()
@@ -129,10 +169,79 @@ object AggregateChats : ClickableFeature(),
         WeDatabaseListenerApi.removeListener(this)
         WeStartActivityApi.removeListener(this)
         CustomLocalFriendAvatars.fallbackUsernameProvider = null
+        stopRefreshThread()
     }
 
     override fun onClick(context: Context) {
         showManagerDialog(context)
+    }
+
+    // Called by WeDatabaseListenerApi when WeChat inserts a conversation row
+    override fun onInsert(table: String, values: ContentValues) {
+        if (table != ConversationTable.NAME) return
+        val username = values.getAsString(ConversationTable.USERNAME) ?: return
+        if (isFolderId(username)) return  // skip our own folder row writes
+        scheduleRefresh()
+    }
+
+    // Called by WeDatabaseListenerApi when WeChat updates conversation rows
+    override fun onUpdate(
+        table: String,
+        values: ContentValues,
+        whereClause: String?,
+        whereArgs: Array<String>?,
+        conflictAlgorithm: Int
+    ) {
+        if (table != ConversationTable.NAME) return
+        // Skip updates that target only folder rows
+        val targetUsername = whereArgs?.singleOrNull()
+        if (targetUsername != null && isFolderId(targetUsername)) return
+        scheduleRefresh()
+    }
+
+    private fun scheduleRefresh() {
+        val handler = refreshHandler ?: return
+        if (loadFolders().isEmpty()) return
+        handler.removeCallbacksAndMessages(REFRESH_TASK_TOKEN)
+        handler.postAtTime(
+            ::doRefreshFolderSummaries,
+            REFRESH_TASK_TOKEN,
+            SystemClock.uptimeMillis() + REFRESH_DEBOUNCE_MS
+        )
+    }
+
+    private fun doRefreshFolderSummaries() {
+        if (!WeDatabaseApi.isReady) return
+        val folders = loadFolders()
+        if (folders.isEmpty()) return
+        runCatching {
+            withQueryRewriteSuppressed {
+                if (!isFolderSchemaReady()) return@withQueryRewriteSuppressed
+                folders.forEach { folder ->
+                    val members = getFolderMembers(folder).filterNot(::isFolderId).distinct()
+                    if (members.isEmpty()) return@forEach
+                    writeFolderSummaryRow(folder.id, readFolderSummary(members))
+                }
+            }
+            WeConversationApi.reloadConversations()
+        }.onFailure {
+            WeLogger.e(TAG, "failed to refresh folder summaries", it)
+        }
+    }
+
+    private fun startRefreshThread() {
+        val thread = HandlerThread("wekit-folder-refresh").also {
+            it.start()
+            refreshThread = it
+        }
+        refreshHandler = Handler(thread.looper)
+    }
+
+    private fun stopRefreshThread() {
+        refreshHandler?.removeCallbacksAndMessages(null)
+        refreshHandler = null
+        refreshThread?.quitSafely()
+        refreshThread = null
     }
 
     override fun onQuery(sql: String): String? {
@@ -282,12 +391,22 @@ object AggregateChats : ClickableFeature(),
         runCatching {
             withQueryRewriteSuppressed {
                 if (!isFolderSchemaReady()) return@withQueryRewriteSuppressed
+                // clearStaleFolderMappings() deletes the folder rows, which would drop the
+                // pin / move-up bits WeChat stored on them. Snapshot those bits first so
+                // composeFolderFlag() can restore them when the rows are recreated below.
+                snapshotFolderPinFlags(folders)
                 clearStaleFolderMappings()
                 folders.forEach { syncFolder(it) }
             }
             WeLogger.i(TAG, "synced ${folders.size} folders")
         }.onFailure {
             WeLogger.e(TAG, "failed to sync folders", it)
+        }
+    }
+
+    private fun snapshotFolderPinFlags(folders: List<ChatFolder>) {
+        folders.forEach { folder ->
+            folderPinFlags[folder.id] = (existingFolderFlag(folder.id) ?: 0L) and FLAG_HIGH_MASK
         }
     }
 
@@ -357,26 +476,32 @@ object AggregateChats : ClickableFeature(),
         )
 
         val summary = readFolderSummary(members)
+        writeFolderSummaryRow(folder.id, summary)
+    }
+
+    /** Writes (REPLACEs) a folder's aggregate row in rconversation from its computed summary. */
+    private fun writeFolderSummaryRow(folderId: String, summary: FolderSummary) {
         WeDatabaseApi.execStatement(
             """
             REPLACE INTO ${ConversationTable.NAME} (
                 ${ConversationTable.USERNAME}, ${ConversationTable.DIGEST}, ${ConversationTable.DIGEST_USER}, ${ConversationTable.IS_SEND}, ${ConversationTable.STATUS},
-                ${ConversationTable.CONVERSATION_TIME}, ${ConversationTable.FLAG}, ${ConversationTable.UNREAD_COUNT}, ${ConversationTable.UNREAD_MUTE_COUNT}, ${ConversationTable.CONTENT}, ${ConversationTable.MSG_TYPE}, ${ConversationTable.CHAT_MODE}
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ${ConversationTable.CONVERSATION_TIME}, ${ConversationTable.FLAG}, ${ConversationTable.UNREAD_COUNT}, ${ConversationTable.UNREAD_MUTE_COUNT}, ${ConversationTable.CONTENT}, ${ConversationTable.MSG_TYPE}, ${ConversationTable.CHAT_MODE}, ${ConversationTable.ATTR_FLAG}
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
             arrayOf(
-                folder.id,
+                folderId,
                 summary.digest,
                 summary.digestUser,
                 summary.isSend,
                 summary.status,
                 summary.conversationTime,
-                summary.flag,
+                composeFolderFlag(folderId, summary.conversationTime),
                 summary.unreadCount,
                 summary.unreadMuteCount,
                 summary.content,
                 summary.msgType,
-                summary.chatMode
+                summary.chatMode,
+                summary.attrFlag
             )
         )
     }
@@ -410,8 +535,11 @@ object AggregateChats : ClickableFeature(),
             """.trimIndent(),
             arrayOf(*members.toTypedArray())
         )
-        val maxFlag = maxLongForMembers(members, ConversationTable.FLAG)
         val fallbackTime = System.currentTimeMillis()
+        // NOTE: flag is intentionally NOT derived from member rows. The folder row's high
+        // 8 bits hold the pin / move-up state that WeChat writes directly via setPlacedTop.
+        // Deriving it from members would clobber the user's pin choice on every sync. The
+        // write sites compose the final flag via composeFolderFlag(), preserving those bits.
         val latest = cursor.use { cursor ->
             if (!cursor.moveToFirst()) null else FolderSummary(
                 digest = cursor.getStringOrEmpty(ConversationTable.DIGEST),
@@ -419,8 +547,6 @@ object AggregateChats : ClickableFeature(),
                 isSend = cursor.getIntOrZero(ConversationTable.IS_SEND),
                 status = cursor.getIntOrZero(ConversationTable.STATUS),
                 conversationTime = cursor.getLongOrZero(ConversationTable.CONVERSATION_TIME).takeIf { it > 0L }
-                    ?: fallbackTime,
-                flag = maxFlag.coerceAtLeast(cursor.getLongOrZero(ConversationTable.FLAG)).takeIf { it > 0L }
                     ?: fallbackTime,
                 unreadCount = unreadCountForMembers(members),
                 unreadMuteCount = unreadMuteCountForMembers(members),
@@ -431,28 +557,64 @@ object AggregateChats : ClickableFeature(),
         }
         return latest ?: FolderSummary(
             conversationTime = fallbackTime,
-            flag = maxFlag.takeIf { it > 0L } ?: fallbackTime,
             unreadCount = unreadCountForMembers(members),
             unreadMuteCount = unreadMuteCountForMembers(members)
         )
     }
 
-    private fun maxLongForMembers(members: List<String>, column: String): Long {
-        val placeholders = members.joinToString(",") { "?" }
+    /**
+     * Builds the folder row's `flag` so its pin / move-up state (high 8 bits, owned by
+     * WeChat's setPlacedTop / unSetPlacedTop) survives our REPLACE, while the low 56 bits
+     * track the latest member's conversationTime. Mirrors WeChat's xg3.b.c() packing.
+     *
+     * Prefers the live folder row's high bits (WeChat's current truth); when the row was
+     * just deleted by clearStaleFolderMappings, falls back to the pre-delete snapshot.
+     */
+    private fun composeFolderFlag(folderId: String, conversationTime: Long): Long {
+        val liveHigh = existingFolderFlag(folderId)?.and(FLAG_HIGH_MASK)
+        val highBits = liveHigh ?: (folderPinFlags[folderId] ?: 0L)
+        return highBits or (conversationTime and FLAG_TIME_MASK)
+    }
+
+    /** Returns the folder row's raw flag, or null when no such row exists. */
+    private fun existingFolderFlag(folderId: String): Long? {
         val cursor = WeDatabaseApi.rawQuery(
-            "SELECT MAX($column) FROM ${ConversationTable.NAME} WHERE ${ConversationTable.USERNAME} IN ($placeholders)",
-            arrayOf(*members.toTypedArray())
+            "SELECT ${ConversationTable.FLAG} FROM ${ConversationTable.NAME} WHERE ${ConversationTable.USERNAME}=? LIMIT 1",
+            arrayOf(folderId)
         )
-        return cursor.use { cursor ->
-            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else 0L
+        return cursor.use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null
         }
     }
 
-    private fun unreadCountForMembers(members: List<String>): Int {
+    /**
+     * Unread of NON-muted members only. WeChat stores every child's unread in unReadCount
+     * regardless of mute (sv/g.java); the conversation box then splits it: non-muted children
+     * feed the box's unReadCount (number badge), muted children feed unReadMuteCount (dot).
+     * Mute status comes from rcontact.type & 512 (c01.e2.P), so we join against rcontact.
+     */
+    private fun unreadCountForMembers(members: List<String>): Int =
+        unreadSumForMembers(members, muted = false)
+
+    /** Unread of MUTED members only (drives the small-dot badge on the folder row). */
+    private fun unreadMuteCountForMembers(members: List<String>): Int =
+        unreadSumForMembers(members, muted = true)
+
+    private fun unreadSumForMembers(members: List<String>, muted: Boolean): Int {
         if (members.isEmpty()) return 0
         val placeholders = members.joinToString(",") { "?" }
+        val muteTest = if (muted) {
+            "(IFNULL(c.${ContactTable.TYPE}, 0) & $CONTACT_TYPE_MUTE_BIT) != 0"
+        } else {
+            "(IFNULL(c.${ContactTable.TYPE}, 0) & $CONTACT_TYPE_MUTE_BIT) = 0"
+        }
         val sumCursor = WeDatabaseApi.rawQuery(
-            "SELECT SUM(${ConversationTable.UNREAD_COUNT}) FROM ${ConversationTable.NAME} WHERE ${ConversationTable.USERNAME} IN ($placeholders)",
+            """
+            SELECT SUM(r.${ConversationTable.UNREAD_COUNT})
+            FROM ${ConversationTable.NAME} r
+            LEFT JOIN ${ContactTable.NAME} c ON c.${ContactTable.USERNAME} = r.${ConversationTable.USERNAME}
+            WHERE r.${ConversationTable.USERNAME} IN ($placeholders) AND $muteTest
+            """.trimIndent(),
             arrayOf(*members.toTypedArray())
         )
         val sum = sumCursor.use { cursor ->
@@ -460,30 +622,14 @@ object AggregateChats : ClickableFeature(),
         }
         if (sum > 0) return sum
 
-        // Fallback: if SUM returned 0 (or null), return count of members that have unReadCount>0
+        // Fallback: if SUM returned 0 (or null), count members with unReadCount>0 in this bucket
         val countCursor = WeDatabaseApi.rawQuery(
-            "SELECT COUNT(1) FROM ${ConversationTable.NAME} WHERE ${ConversationTable.USERNAME} IN ($placeholders) AND ${ConversationTable.UNREAD_COUNT}>0",
-            arrayOf(*members.toTypedArray())
-        )
-        return countCursor.use { cursor ->
-            if (cursor.moveToFirst()) cursor.getInt(0) else 0
-        }
-    }
-
-    private fun unreadMuteCountForMembers(members: List<String>): Int {
-        if (members.isEmpty()) return 0
-        val placeholders = members.joinToString(",") { "?" }
-        val sumCursor = WeDatabaseApi.rawQuery(
-            "SELECT SUM(${ConversationTable.UNREAD_MUTE_COUNT}) FROM ${ConversationTable.NAME} WHERE ${ConversationTable.USERNAME} IN ($placeholders)",
-            arrayOf(*members.toTypedArray())
-        )
-        val sum = sumCursor.use { cursor ->
-            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getInt(0) else 0
-        }
-        if (sum > 0) return sum
-
-        val countCursor = WeDatabaseApi.rawQuery(
-            "SELECT COUNT(1) FROM ${ConversationTable.NAME} WHERE ${ConversationTable.USERNAME} IN ($placeholders) AND ${ConversationTable.UNREAD_MUTE_COUNT}>0",
+            """
+            SELECT COUNT(1)
+            FROM ${ConversationTable.NAME} r
+            LEFT JOIN ${ContactTable.NAME} c ON c.${ContactTable.USERNAME} = r.${ConversationTable.USERNAME}
+            WHERE r.${ConversationTable.USERNAME} IN ($placeholders) AND r.${ConversationTable.UNREAD_COUNT}>0 AND $muteTest
+            """.trimIndent(),
             arrayOf(*members.toTypedArray())
         )
         return countCursor.use { cursor ->
@@ -756,7 +902,7 @@ object AggregateChats : ClickableFeature(),
                 .fillMaxHeight(),
             title = { Text(title) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                DefaultColumn {
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
@@ -842,6 +988,10 @@ object AggregateChats : ClickableFeature(),
                                     }
                                 }
                                 Button(onClick = {
+                                    if (!CustomLocalFriendAvatars.isEnabled) {
+                                        showToast("请启用「自定义好友本地头像」以使用头像相关功能!")
+                                    }
+
                                     CustomLocalFriendAvatars.selectAvatarImage(HostInfo.application, folderId)
                                 }) {
                                     Text(if (hasAvatar) "更换头像" else "设置头像")
@@ -1099,13 +1249,21 @@ object AggregateChats : ClickableFeature(),
         val isSend: Int = 0,
         val status: Int = 0,
         val conversationTime: Long = System.currentTimeMillis(),
-        val flag: Long = 0L,
         val unreadCount: Int = 0,
         val unreadMuteCount: Int = 0,
         val content: String = "",
         val msgType: String = "",
         val chatMode: Int = 0
-    )
+    ) {
+        /**
+         * The folder row needs a mute attrflag bit set for the homepage badge to render a
+         * small dot (WeChat w3.b requires unReadCount==0 && unReadMuteCount>0 && attrflag has
+         * a mute bit). We add the bit only when there's muted-but-no-normal unread, and clear
+         * it otherwise so a stale dot never lingers.
+         */
+        val attrFlag: Int
+            get() = if (unreadCount == 0 && unreadMuteCount > 0) ATTR_FLAG_MUTE_BIT else 0
+    }
 
     private object ConversationTable {
         const val NAME = "rconversation"
@@ -1122,6 +1280,7 @@ object AggregateChats : ClickableFeature(),
         const val CONTENT = "content"
         const val MSG_TYPE = "msgType"
         const val CHAT_MODE = "chatmode"
+        const val ATTR_FLAG = "attrflag"
 
         val REQUIRED_COLUMNS = setOf(
             USERNAME,
@@ -1136,7 +1295,8 @@ object AggregateChats : ClickableFeature(),
             UNREAD_MUTE_COUNT,
             CONTENT,
             MSG_TYPE,
-            CHAT_MODE
+            CHAT_MODE,
+            ATTR_FLAG
         )
     }
 
