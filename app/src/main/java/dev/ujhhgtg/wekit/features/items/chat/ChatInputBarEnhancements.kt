@@ -212,7 +212,7 @@ private fun selectAndSendVoice(context: Context, currentConv: String) {
             }
 
             lifecycleScope.launch(Dispatchers.IO) {
-                val tempPath = KnownPaths.moduleCache / "voice_tmp.${uri.fileExtension}"
+                val tempPath = KnownPaths.moduleCache / "voice_tmp.${uri.fileExtension.ifEmpty { ".mp3" }}"
                 contentResolver.openInputStream(uri)!!.use { input ->
                     tempPath.outputStream().use { output ->
                         input.copyTo(output)

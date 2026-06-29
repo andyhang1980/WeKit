@@ -6,8 +6,8 @@ mod audio_utils;
 mod crash_handler;
 mod crash_triggerer;
 mod logging;
-mod utils;
 mod preferences_db;
+mod utils;
 
 use std::ffi::CString;
 
@@ -15,8 +15,8 @@ use crash_handler::{install_crash_handler, uninstall_crash_handler};
 use crash_triggerer::trigger_test_crash;
 
 use jni::sys::{
-    JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, JNIEnv as RawJNIEnv, JavaVM, jboolean, jint, jlong,
-    jobject, jstring, jbyteArray, jobjectArray, jfloat,
+    JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, JNIEnv as RawJNIEnv, JavaVM, jboolean, jbyteArray,
+    jfloat, jint, jlong, jobject, jobjectArray, jstring,
 };
 use libc::c_void;
 
@@ -71,7 +71,7 @@ pub extern "C" fn Java_dev_ujhhgtg_wekit_utils_crash_NativeCrashHandler_triggerT
 ///
 /// Java signature: `(Ljava/lang/String;)Ljava/lang/String;`
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Java_dev_ujhhgtg_wekit_hooks_items_chat_MarkdownRendering_convertMarkdownToHtmlNative(
+pub unsafe extern "C" fn Java_dev_ujhhgtg_wekit_features_items_chat_MarkdownRendering_convertMarkdownToHtmlNative(
     env: *mut RawJNIEnv,
     _thiz: jobject,
     markdown_string: jstring,
@@ -205,14 +205,16 @@ pub extern "C" fn Java_dev_ujhhgtg_wekit_preferences_TursoPrefsImpl_nativeGetStr
 ) -> jstring {
     with_jstring(env, key, |key_str| {
         if let Some(row) = preferences_db::get_value(key_str)
-            && (row.val_type == preferences_db::TYPE_STRING || row.val_type == preferences_db::TYPE_STRING_SET)
-                && let Some(ref s) = row.val_string {
-                    unsafe {
-                        let fns = *env;
-                        let c_str = CString::new(s.as_str()).unwrap_or_default();
-                        return ((*fns).v1_6.NewStringUTF)(env, c_str.as_ptr());
-                    }
-                }
+            && (row.val_type == preferences_db::TYPE_STRING
+                || row.val_type == preferences_db::TYPE_STRING_SET)
+            && let Some(ref s) = row.val_string
+        {
+            unsafe {
+                let fns = *env;
+                let c_str = CString::new(s.as_str()).unwrap_or_default();
+                return ((*fns).v1_6.NewStringUTF)(env, c_str.as_ptr());
+            }
+        }
         def_value
     })
 }
@@ -253,24 +255,27 @@ pub extern "C" fn Java_dev_ujhhgtg_wekit_preferences_TursoPrefsImpl_nativeGetStr
     with_jstring(env, key, |key_str| {
         if let Some(row) = preferences_db::get_value(key_str)
             && row.val_type == preferences_db::TYPE_STRING_SET
-                && let Some(ref s) = row.val_string {
-                    let parts: Vec<&str> = s.split('\u{001f}').collect();
-                    let mut unowned = unsafe { jni::EnvUnowned::from_raw(env) };
-                    let mut result = std::ptr::null_mut();
-                    let _ = unowned.with_env(|jni_env| {
-                        let class = jni_env.find_class(jni::jni_str!("java/lang/String")).unwrap();
-                        let array = jni_env
-                            .new_object_array(parts.len() as jni::sys::jsize, &class, JObject::null())
-                            .unwrap();
-                        for (i, part) in parts.iter().enumerate() {
-                            let j_str = jni_env.new_string(part).unwrap();
-                            array.set_element(jni_env, i, &j_str).unwrap();
-                        }
-                        result = array.as_raw();
-                        Ok::<(), jni::errors::Error>(())
-                    });
-                    return result;
+            && let Some(ref s) = row.val_string
+        {
+            let parts: Vec<&str> = s.split('\u{001f}').collect();
+            let mut unowned = unsafe { jni::EnvUnowned::from_raw(env) };
+            let mut result = std::ptr::null_mut();
+            let _ = unowned.with_env(|jni_env| {
+                let class = jni_env
+                    .find_class(jni::jni_str!("java/lang/String"))
+                    .unwrap();
+                let array = jni_env
+                    .new_object_array(parts.len() as jni::sys::jsize, &class, JObject::null())
+                    .unwrap();
+                for (i, part) in parts.iter().enumerate() {
+                    let j_str = jni_env.new_string(part).unwrap();
+                    array.set_element(jni_env, i, &j_str).unwrap();
                 }
+                result = array.as_raw();
+                Ok::<(), jni::errors::Error>(())
+            });
+            return result;
+        }
         std::ptr::null_mut()
     })
 }
@@ -326,9 +331,10 @@ pub extern "C" fn Java_dev_ujhhgtg_wekit_preferences_TursoPrefsImpl_nativeGetInt
     with_jstring(env, key, |key_str| {
         if let Some(row) = preferences_db::get_value(key_str)
             && row.val_type == preferences_db::TYPE_INT
-                && let Some(val) = row.val_int {
-                    return val as jint;
-                }
+            && let Some(val) = row.val_int
+        {
+            return val as jint;
+        }
         def_value
     })
 }
@@ -364,9 +370,10 @@ pub extern "C" fn Java_dev_ujhhgtg_wekit_preferences_TursoPrefsImpl_nativeGetLon
     with_jstring(env, key, |key_str| {
         if let Some(row) = preferences_db::get_value(key_str)
             && row.val_type == preferences_db::TYPE_LONG
-                && let Some(val) = row.val_long {
-                    return val as jlong;
-                }
+            && let Some(val) = row.val_long
+        {
+            return val as jlong;
+        }
         def_value
     })
 }
@@ -402,9 +409,10 @@ pub extern "C" fn Java_dev_ujhhgtg_wekit_preferences_TursoPrefsImpl_nativeGetFlo
     with_jstring(env, key, |key_str| {
         if let Some(row) = preferences_db::get_value(key_str)
             && row.val_type == preferences_db::TYPE_FLOAT
-                && let Some(val) = row.val_float {
-                    return val as jfloat;
-                }
+            && let Some(val) = row.val_float
+        {
+            return val as jfloat;
+        }
         def_value
     })
 }
@@ -440,9 +448,14 @@ pub extern "C" fn Java_dev_ujhhgtg_wekit_preferences_TursoPrefsImpl_nativeGetBoo
     with_jstring(env, key, |key_str| {
         if let Some(row) = preferences_db::get_value(key_str)
             && row.val_type == preferences_db::TYPE_BOOL
-                && let Some(val) = row.val_bool {
-                    return if val { jni::sys::JNI_TRUE } else { jni::sys::JNI_FALSE };
-                }
+            && let Some(val) = row.val_bool
+        {
+            return if val {
+                jni::sys::JNI_TRUE
+            } else {
+                jni::sys::JNI_FALSE
+            };
+        }
         def_value
     })
 }
@@ -476,17 +489,19 @@ pub extern "C" fn Java_dev_ujhhgtg_wekit_preferences_TursoPrefsImpl_nativeGetByt
 ) -> jbyteArray {
     with_jstring(env, key, |key_str| {
         if let Some(row) = preferences_db::get_value(key_str)
-            && (row.val_type == preferences_db::TYPE_BYTES || row.val_type == preferences_db::TYPE_SERIALIZABLE)
-                && let Some(ref bytes) = row.val_bytes {
-                    let mut unowned = unsafe { jni::EnvUnowned::from_raw(env) };
-                    let mut result = std::ptr::null_mut();
-                    let _ = unowned.with_env(|jni_env| {
-                        let byte_array = jni_env.byte_array_from_slice(bytes).unwrap();
-                        result = byte_array.as_raw();
-                        Ok::<(), jni::errors::Error>(())
-                    });
-                    return result;
-                }
+            && (row.val_type == preferences_db::TYPE_BYTES
+                || row.val_type == preferences_db::TYPE_SERIALIZABLE)
+            && let Some(ref bytes) = row.val_bytes
+        {
+            let mut unowned = unsafe { jni::EnvUnowned::from_raw(env) };
+            let mut result = std::ptr::null_mut();
+            let _ = unowned.with_env(|jni_env| {
+                let byte_array = jni_env.byte_array_from_slice(bytes).unwrap();
+                result = byte_array.as_raw();
+                Ok::<(), jni::errors::Error>(())
+            });
+            return result;
+        }
         std::ptr::null_mut()
     })
 }
@@ -566,7 +581,9 @@ pub extern "C" fn Java_dev_ujhhgtg_wekit_preferences_TursoPrefsImpl_nativeGetAll
     let mut unowned = unsafe { jni::EnvUnowned::from_raw(env) };
     let mut result = std::ptr::null_mut();
     let _ = unowned.with_env(|jni_env| {
-        let class = jni_env.find_class(jni::jni_str!("java/lang/String")).unwrap();
+        let class = jni_env
+            .find_class(jni::jni_str!("java/lang/String"))
+            .unwrap();
         let array = jni_env
             .new_object_array(keys.len() as jni::sys::jsize, &class, JObject::null())
             .unwrap();

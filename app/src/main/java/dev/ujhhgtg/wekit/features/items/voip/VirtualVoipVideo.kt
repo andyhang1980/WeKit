@@ -382,7 +382,6 @@ object VirtualVoipVideo : ClickableFeature(), IResolveDex {
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // 始终显示方向设置项
                         Text("视频显示方向:")
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -400,7 +399,7 @@ object VirtualVoipVideo : ClickableFeature(), IResolveDex {
                                 selected = orientationText == "portrait",
                                 onClick = { orientationText = "portrait"; streamOrientation = "portrait" }
                             )
-                            Text("竖屏 (Portrait)", modifier = Modifier.clickable { orientationText = "portrait"; streamOrientation = "portrait" })
+                            Text("竖屏", modifier = Modifier.clickable { orientationText = "portrait"; streamOrientation = "portrait" })
 
                             Spacer(modifier = Modifier.width(16.dp))
 
@@ -408,7 +407,7 @@ object VirtualVoipVideo : ClickableFeature(), IResolveDex {
                                 selected = orientationText == "landscape",
                                 onClick = { orientationText = "landscape"; streamOrientation = "landscape" }
                             )
-                            Text("横屏 (Landscape)", modifier = Modifier.clickable { orientationText = "landscape"; streamOrientation = "landscape" })
+                            Text("横屏", modifier = Modifier.clickable { orientationText = "landscape"; streamOrientation = "landscape" })
                         }
                     }
                 },

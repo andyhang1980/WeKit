@@ -3,6 +3,7 @@ package dev.ujhhgtg.wekit.features.items.chat
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.view.MenuItem
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.tencent.mm.ui.LauncherUI
-import com.tencent.mm.ui.MMActivity
 import com.tencent.mm.ui.conversation.BaseConversationUI
 import com.tencent.mm.ui.conversation.ConvBoxServiceConversationUI
 import com.tencent.mm.ui.conversation.MainUI
@@ -68,6 +68,7 @@ object AggregateChats : ClickableFeature(),
 
     private val TAG = This.Class.simpleName
     private const val FOLDER_PREFIX = "wekit_folder_"
+    private const val FOLDER_CONFIG_MENU_ID = 0x0721C0DE
 
     private val foldersFile by lazy { KnownPaths.moduleData / "chat_folders.json" }
 
@@ -107,6 +108,7 @@ object AggregateChats : ClickableFeature(),
     override fun onEnable() {
         WeDatabaseListenerApi.addListener(this)
         WeStartActivityApi.addListener(this)
+
         hookMainUiRefresh()
         hookOpenFolder()
         hookConversationPages()
@@ -196,9 +198,9 @@ object AggregateChats : ClickableFeature(),
 
         BaseConversationUI::class.reflekt().apply {
             firstMethod("onResume").hookAfter {
-                val activity = thisObject as? Activity ?: return@hookAfter
+                val activity = thisObject as? BaseConversationUI ?: return@hookAfter
                 activeFolderId = activeFolderId ?: readFolderIdFromIntent(activity.intent)
-                injectFolderTitle(activity)
+                configureFolderActivity(activity)
             }
 
             firstMethod("onDestroy").hookAfter {
@@ -244,24 +246,32 @@ object AggregateChats : ClickableFeature(),
         intent.putExtra(WeChatIntentExtra.ROOM_NAME, folderId)
     }
 
-    private fun injectFolderTitle(activity: Activity) {
+    private fun configureFolderActivity(activity: BaseConversationUI) {
         val folder = folderById(activeFolderId ?: return) ?: return
-        when (activity) {
-            is BaseConversationUI -> {
-                activity.setTitle(folder.name)
-            }
+        activity.setTitle(folder.name)
 
-            is MMActivity -> {
-                activity.setMMTitle(folder.name)
-            }
+        val fragment = activity.conversationFm
 
-            else -> {
-                WeLogger.w(
-                    TAG,
-                    "failing to set title for ${activity.javaClass.name}; it's neither BaseConversationUI nor MMActivity"
-                )
-            }
+        // onResume may fire repeatedly; drop any previous entry before re-adding
+        fragment.removeOptionMenu(FOLDER_CONFIG_MENU_ID)
+
+        val listener = MenuItem.OnMenuItemClickListener {
+            showEditFolderDialog(
+                context = activity,
+                folder = folder,
+                onFolderUpdated = {
+                    syncFoldersToDatabase()
+                    configureFolderActivity(activity)
+                },
+                onFolderDeleted = {
+                    syncFoldersToDatabase()
+                    activity.finish()
+                }
+            )
+            true
         }
+
+        fragment.addTextOptionMenu(FOLDER_CONFIG_MENU_ID, "配置", listener)
     }
 
     private fun syncFoldersToDatabase() {

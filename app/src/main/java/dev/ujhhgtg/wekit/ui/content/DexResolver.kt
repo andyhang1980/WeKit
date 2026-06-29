@@ -226,7 +226,14 @@ fun DexResolver(
                     Text(text = currentTask, style = MaterialTheme.typography.bodyMedium)
                     LinearWavyProgressIndicator(
                         progress = { if (outdatedItems.isEmpty()) 0f else completed.toFloat() / outdatedItems.size },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        amplitude = { progress ->
+                            if (progress == 0f || progress == 1f) {
+                                0f
+                            } else {
+                                1f
+                            }
+                        }
                     )
                     Text(
                         text = "总进度: $completed/${outdatedItems.size}",
