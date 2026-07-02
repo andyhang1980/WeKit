@@ -188,7 +188,4 @@ object OpLog {
     /** Convenience: build oplog request bytes for a single typed command payload. */
     inline fun <reified T> encodeSingle(cmdId: Int, payload: T): ByteArray =
         encodeRequest(listOf(operation(cmdId, payload)))
-
-    /** Serialize an already-assembled request proto (for commands with a bespoke layout). */
-    inline fun <reified T> encode(request: T): ByteArray = WeProto.encode(request)
 }

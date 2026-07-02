@@ -17,14 +17,21 @@ import kotlinx.serialization.protobuf.ProtoNumber
 data class NewSendMsgReqProto(
     @ProtoNumber(1) val count: Int = 1,
     @ProtoNumber(2) val items: List<NewSendMsgItemProto> = emptyList(),
-)
+    @ProtoNumber(4) override val createTime: Int = 0,
+    @ProtoNumber(5) override val clientMsgId: Int = 0
+) : INewSendMsgProto
+
+interface INewSendMsgProto {
+    val createTime: Int
+    val clientMsgId: Int
+}
 
 @Serializable
 data class NewSendMsgItemProto(
     @ProtoNumber(1) val toUser: UserNameProto = UserNameProto(),
     @ProtoNumber(2) val content: String = "",
     @ProtoNumber(3) val type: Int = 1,
-    @ProtoNumber(4) val createTime: Int = 0,
-    @ProtoNumber(5) val clientMsgId: Int = 0,
+    @ProtoNumber(4) override val createTime: Int = 0,
+    @ProtoNumber(5) override val clientMsgId: Int = 0,
     @ProtoNumber(6) val msgSource: String = "",
-)
+): INewSendMsgProto

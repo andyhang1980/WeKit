@@ -61,11 +61,9 @@ import dev.ujhhgtg.wekit.utils.strings.isGroupChatWxId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import dev.ujhhgtg.wekit.features.api.net.MsgIdPreviewer
-import dev.ujhhgtg.wekit.features.api.net.models.protobuf.NewSendMsgItemProto
-import dev.ujhhgtg.wekit.features.api.net.models.protobuf.NewSendMsgReqProto
-import dev.ujhhgtg.wekit.features.api.net.models.protobuf.UserNameProto
-import dev.ujhhgtg.wekit.features.api.net.models.protobuf.WeProto
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.div
@@ -161,35 +159,32 @@ object ChatInputBarEnhancements : SwitchFeature(), IResolveDex {
                                                 .filter { c -> c.wxId != WeApi.selfWxId }
                                             val content = chatFooter.lastText
 
-                                            // Stamp the fields the CGI-522 signer would inject, so we
-                                            // can build the proto directly and send it raw.
-                                            val nowMs = System.currentTimeMillis()
-                                            val msgSource =
-                                                "<msgsource><atuserlist><![CDATA[${contacts.joinToString(",") { c -> c.wxId }}]]></atuserlist><pua>1</pua><alnode><cf>5</cf><inlenlist>73</inlenlist></alnode><eggIncluded>1</eggIncluded></msgsource>"
-
-                                            val reqBytes = WeProto.encode(
-                                                NewSendMsgReqProto(
-                                                    items = listOf(
-                                                        NewSendMsgItemProto(
-                                                            toUser = UserNameProto(WeCurrentConversationApi.value),
-                                                            content = contacts.joinToString("") { c -> "@${c.nickname} " } + content,
-                                                            type = 1,
-                                                            createTime = (nowMs / 1000).toInt(),
-                                                            clientMsgId = MsgIdPreviewer.generateClientMsgId(WeApi.selfWxId, nowMs),
-                                                            msgSource = msgSource,
-                                                        )
+                                            val reqBody = buildJsonObject {
+                                                put("1", 1)
+                                                putJsonObject("2") {
+                                                    putJsonObject("1") {
+                                                        put("1", WeCurrentConversationApi.value)
+                                                    }
+                                                    put("2", contacts.joinToString("") { c ->
+                                                        "@${c.nickname} "
+                                                    } + content)
+                                                    put("3", 1)
+                                                    put("4", System.currentTimeMillis() / 1000)
+                                                    put("5", -388413336)
+                                                    put(
+                                                        "6", """<msgsource><atuserlist><![CDATA[${contacts.joinToString(",") { c -> c.wxId }}]]></atuserlist><pua>1</pua><alnode><cf>5</cf><inlenlist>73</inlenlist></alnode><eggIncluded>1</eggIncluded></msgsource>"""
                                                     )
-                                                )
-                                            )
+                                                }
+                                            }
 
-                                            WePacketHelper.sendCgiRaw(
+                                            WePacketHelper.sendCgi(
                                                 "/cgi-bin/micromsg-bin/newsendmsg",
                                                 522,
                                                 0,
                                                 0,
-                                                reqBytes
+                                                reqBody.toString()
                                             ) {
-                                                onSuccess {
+                                                onSuccess { _ ->
                                                     showToast("已发送 (自己无法看到该消息)")
                                                 }
                                             }

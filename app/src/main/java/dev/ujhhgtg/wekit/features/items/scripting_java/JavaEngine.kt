@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import bsh.BshMethod
 import bsh.NameSpace
+import dalvik.system.InMemoryDexClassLoader
 import de.robv.android.xposed.XC_MethodHook
 import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.reflekt.reflekt
@@ -54,6 +55,7 @@ import java.io.File
 import java.io.InputStream
 import java.lang.reflect.Member
 import java.lang.reflect.Proxy
+import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.util.Properties
 import java.util.function.Consumer
@@ -535,8 +537,8 @@ object JavaEngine {
                     plugin.dir.resolve(path).toFile().canonicalPath
                 }
                 val dexBytes = Files.readAllBytes(File(resolved).toPath())
-                val loader = dalvik.system.InMemoryDexClassLoader(
-                    java.nio.ByteBuffer.wrap(dexBytes), ClassLoaders.MODULE
+                val loader = InMemoryDexClassLoader(
+                    ByteBuffer.wrap(dexBytes), ClassLoaders.MODULE
                 )
                 plugin.interpreter.classManager.addClassLoader(loader)
             })

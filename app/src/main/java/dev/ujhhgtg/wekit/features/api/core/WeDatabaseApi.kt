@@ -289,6 +289,13 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
         // 头像查询
         // =========================================
 
+        /** 每个会话最近一条消息的时间 */
+        val LAST_MESSAGE_TIMES = """
+            SELECT talker, MAX(createTime) AS lastTime
+            FROM message
+            GROUP BY talker
+        """.trimIndent()
+
         /** 获取头像 URL */
         fun avatar(wxid: String) = """
             SELECT i.reserved2 AS avatarUrl
@@ -565,6 +572,33 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
     }
 
     /**
+     * 获取邀请指定群成员进群的邀请者 wxId
+     * 数据来自 chatroom.roomdata protobuf，群主或无邀请者信息时返回空字符串
+     * @param groupId 群聊 wxId（xxx@chatroom）
+     * @param memberId 成员 wxId
+     * @return 邀请者 wxId，未记录时返回空字符串
+     */
+    fun getGroupMemberInviter(groupId: String, memberId: String): String {
+        if (!groupId.isGroupChatWxId || memberId.isEmpty()) return ""
+        try {
+            val cursor = db.rawQuery(
+                "SELECT roomdata FROM chatroom WHERE chatroomname = ?",
+                arrayOf(groupId)
+            )
+            cursor.use { cursor ->
+                if (cursor != null && cursor.moveToFirst()) {
+                    val blob = cursor.getBlob(0) ?: return ""
+                    val data = ProtoBuf.decodeFromByteArray<ChatRoomDataProto>(blob)
+                    return data.members.firstOrNull { it.wxId == memberId }?.inviterWxId ?: ""
+                }
+            }
+        } catch (e: Exception) {
+            WeLogger.e(TAG, "failed to get group member inviter; groupId=$groupId, memberId=$memberId", e)
+        }
+        return ""
+    }
+
+    /**
      * 获取【公众号】
      */
     fun getOfficialAccounts(): List<WeOfficialAccount> {
@@ -627,6 +661,21 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
         } catch (e: Exception) {
             WeLogger.e(TAG, "failed to get messages from sender; convId=$convId, senderId=$senderId", e)
             return emptyList()
+        }
+    }
+
+    /**
+     * 获取每个会话最近一条消息的时间
+     * @return 会话 wxId 到最近消息时间（毫秒时间戳）的映射
+     */
+    fun getLastMessageTimes(): Map<String, Long> {
+        return try {
+            executeQuery(SqlStatements.LAST_MESSAGE_TIMES).associate { row ->
+                row.str("talker") to row.long("lastTime")
+            }
+        } catch (e: Exception) {
+            WeLogger.e(TAG, "failed to get last message times", e)
+            emptyMap()
         }
     }
 

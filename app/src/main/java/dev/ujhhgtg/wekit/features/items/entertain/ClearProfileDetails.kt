@@ -7,8 +7,8 @@ import dev.ujhhgtg.wekit.features.api.net.WePacketHelper
 import dev.ujhhgtg.wekit.features.api.net.models.protobuf.ClearProfileListProto
 import dev.ujhhgtg.wekit.features.api.net.models.protobuf.ClearProfileOpProto
 import dev.ujhhgtg.wekit.features.api.net.models.protobuf.ClearProfileReqProto
-import dev.ujhhgtg.wekit.features.api.net.models.protobuf.OpLog
 import dev.ujhhgtg.wekit.features.api.net.models.protobuf.OpLogRespProto
+import dev.ujhhgtg.wekit.features.api.net.models.protobuf.WeProto
 import dev.ujhhgtg.wekit.features.core.ClickableFeature
 import dev.ujhhgtg.wekit.features.core.Feature
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
@@ -32,7 +32,7 @@ object ClearProfileDetails : ClickableFeature() {
                     Button(onClick = {
                         // cmd 91 embeds the profile proto directly; all fields default to their
                         // cleared value, so an all-defaults ModProfileProto reproduces the native packet.
-                        val reqBytes = OpLog.encode(
+                        val reqBytes = WeProto.encodeWithDefaults(
                             ClearProfileReqProto(
                                 ClearProfileListProto(operations = listOf(ClearProfileOpProto()))
                             )
