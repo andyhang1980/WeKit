@@ -80,12 +80,12 @@ jobs:
           sudo apt install -y gcc-multilib
 
       - name: Decode keystore
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push'
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $RUNNER_TEMP/wekit-keystore.jks
 
       - name: Build Release (Signed)
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WEKIT_KEYSTORE_FILE: ${{ runner.temp }}/wekit-keystore.jks
@@ -95,7 +95,7 @@ jobs:
         run: ./gradlew assembleRelease --warning-mode all --stacktrace
 
       - name: Build Release (Unsigned)
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'push'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew assembleRelease --warning-mode all --stacktrace
